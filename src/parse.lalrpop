@@ -1,0 +1,50 @@
+use regex_syntax;
+use regex_syntax::ast::Ast;
+use lalrpop_util::ParseError;
+use ast::Expr;
+
+grammar;
+
+extern {
+    type Error = String;
+}
+
+pub Expr: Box<Expr> = {
+    <r:RegexLiteral> => Box::new(Expr::RegexLiteral(r))
+};
+
+// TODO(ethan): record a Span somehow. See lalrpop-test/src/error.lalrpop
+// in the lalrpop repo for some ideas.
+
+// TODO(ethan): make regex parse errors identify themselves by position well.
+//    - I might be able to just inject start and end positions into
+//      a regex Span ast variant and have it all Just Work (tm).
+//    - Otherwise I will have to just embed the regex error message in
+//      in my larger error message somehow.
+
+RegexLiteral: Ast = {
+    // raw literals
+    <s:r"'[^']+'"> =>? {
+        // TODO(ethan): inject the right Spans here. I might need to play
+        //              games with a Visitor
+
+        // TODO(ethan): split regex_syntax::escape up into two different
+        //              functions so that I can get just the first bit.
+        use regex_syntax::ast::parse::Parser;
+        match Parser::new().parse(&regex_syntax::escape(&s[1..(s.len() - 1)])) {
+            Ok(re) => Ok(re),
+            Err(err) => Err(ParseError::User { error: format!("{}", err) }),
+        }
+    },
+
+    // regex literals
+    <s:r"/[^/]+/"> =>? {
+        // TODO(ethan): inject the right Spans here. I might need to play
+        //              games with a Visitor
+        use regex_syntax::ast::parse::Parser;
+        match Parser::new().parse(&s[1..(s.len() - 1)]) {
+            Ok(re) => Ok(re),
+            Err(err) => Err(ParseError::User { error: format!("{}", err) }),
+        }
+    },
+};
