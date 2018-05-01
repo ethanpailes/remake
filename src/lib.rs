@@ -5,21 +5,44 @@ extern crate lalrpop_util;
 mod ast;
 mod parse;
 
+//
+// I want the eventual interface to look something like:
+//
+// ```
+// let r = Remake::new(r"/foo/").unwrap();
+// let wrap_parens = Remake::new(r"(re) => '(' + re ')'").unwrap();
+// let re: Regex = wrap_parens.apply(r).unwrap().eval().unwrap();
+// ```
+//
+// The idea is that remake expressions can be parsed and then passed
+// around within rust as opaque expressions. They can then be combined
+// through function application.
+//
+
 use regex::Regex;
 
-pub fn remake(remake_src: &str) -> Result<Regex, Error> {
-    let expr = match parse::ExprParser::new().parse(remake_src) {
-        Ok(expr) => expr,
-        Err(err) => return Err(Error::ParseError(format!("{}", err))),
-    };
-
-    eval(&*expr)
+pub struct Remake {
+    #[doc(hidden)]
+    expr: ast::Expr,
 }
 
-fn eval(expr: &ast::Expr) -> Result<Regex, Error> {
-    match expr {
-        &ast::Expr::RegexLiteral(ref regex_ast) =>
-            Ok(Regex::new(&format!("{}", regex_ast)).unwrap()),
+impl Remake {
+    pub fn new(src: &str) -> Result<Self, Error> {
+        match parse::ExprParser::new().parse(src) {
+            Ok(expr) => Ok(Remake { expr: *expr }),
+            Err(err) => Err(Error::ParseError(format!("{}", err))),
+        }
+    }
+
+    pub fn eval(&self) -> Result<Regex, Error> {
+        match self.expr {
+            ast::Expr::RegexLiteral(ref regex_ast) =>
+                Ok(Regex::new(&format!("{}", regex_ast)).unwrap()),
+        }
+    }
+
+    pub fn eval_str(src: &str) -> Result<Regex, Error> {
+        Self::new(src)?.eval()
     }
 }
 
@@ -46,13 +69,13 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use super::remake;
+    use super::*;
 
     macro_rules! mat {
         ($test_name:ident, $remake_src:expr, $input:expr) => {
             #[test]
             fn $test_name() {
-                let re = remake($remake_src).unwrap();
+                let re = Remake::eval_str($remake_src).unwrap();
                 assert!(re.is_match($input),
                     format!("/{:?}/ does not match {:?}.", re, $input));
             }
@@ -63,7 +86,7 @@ mod tests {
         ($test_name:ident, $remake_src:expr) => {
             #[test]
             fn $test_name() {
-                assert!(!remake($remake_src).ok().is_some(),
+                assert!(!Remake::eval_str($remake_src).ok().is_some(),
                         format!("{:?} parses.", $remake_src));
             }
         }
