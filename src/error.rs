@@ -68,6 +68,19 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
                 writeln!(f, "Error parsing the regex literal: {}", re)?;
                 write!(f, "{}", block_leftpad(err, 4))?;
             }
+            &InvalidToken => {
+                writeln!(f, "Invalid token.")?;
+            }
+            &UnrecognizedToken { ref token, ref expected } => {
+                write!(f, "Unexpected token '{}'.", token)?;
+                if expected.len() > 0 {
+                    write!(f, " Expected one of:")?;
+                    for e in expected {
+                        write!(f, " {}", e)?;
+                    }
+                }
+                write!(f, "\n")?;
+            }
         }
 
         Ok(())
@@ -76,6 +89,11 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
 
 #[derive(Debug)]
 pub enum ErrorKind {
+    InvalidToken,
+    UnrecognizedToken {
+        token: String,
+        expected: Vec<String>,
+    },
     RegexError {
         re: String,
         err: String,

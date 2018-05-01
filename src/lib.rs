@@ -48,6 +48,25 @@ impl Remake {
                 return Err(Error::ParseError(match err {
                     lalrpop_util::ParseError::User { error } =>
                         format!("{}", error.overlay(&remake.src)),
+                    lalrpop_util::ParseError::InvalidToken { location } =>
+                        format!("{}",
+                            error::Error::new(
+                                error::ErrorKind::InvalidToken,
+                                ast::Span { start: location, end: location + 1 }
+                                ).overlay(&remake.src)),
+
+                    lalrpop_util::ParseError::UnrecognizedToken {
+                        token: Some((l, tok, r)), expected
+                    } => format!(
+                        "{}",
+                        error::Error::new(
+                            error::ErrorKind::UnrecognizedToken {
+                                token: tok.to_string(),
+                                expected: expected,
+                            },
+                            ast::Span { start: l, end: r }
+                            ).overlay(&remake.src)),
+
                     err => format!("{}", err),
                 }));
             }
@@ -141,7 +160,7 @@ mod tests {
                         // When copying the right output into the test
                         // case uncommenting this can help debug.
                         //
-                        // assert_eq!($expected_err_str, reason);
+                        assert_eq!($expected_err_str, reason);
                         
                         if $expected_err_str != reason {
                             // We unwrap rather than asserting or something
@@ -163,12 +182,47 @@ mod tests {
     mat!(lit_5, r"'\u{Currency_Symbol}'", r"\u{Currency_Symbol}");
 
     // remake parse errors
-    parse_error!(unmatched_tick_1_, r"'a", "FIXME");
-    parse_error!(unmatched_tick_2_, r"a'", "FIXME");
-    parse_error!(unmatched_slash_1_, r"/a", "FIXME");
-    parse_error!(unmatched_slash_2_, r"a/", "FIXME");
-    parse_error!(unmatched_tick_slash_1_, r"'a/", "FIXME");
-    parse_error!(unmatched_tick_slash_2_, r"/a'", "FIXME");
+    parse_error!(unmatched_tick_1_, r"'a",
+        r#"    at line 1, col 1:
+    > 'a
+      ^
+Invalid token.
+"#);
+
+    parse_error!(unmatched_tick_2_, r"a'",
+        r#"    at line 1, col 1:
+    > a'
+      ^
+Invalid token.
+"#);
+
+    parse_error!(unmatched_slash_1_, r"/a",
+        r#"    at line 1, col 1:
+    > /a
+      ^
+Invalid token.
+"#);
+
+    parse_error!(unmatched_slash_2_, r"a/",
+        r#"    at line 1, col 1:
+    > a/
+      ^
+Invalid token.
+"#);
+
+    parse_error!(unmatched_tick_slash_1_, r"'a/",
+        r#"    at line 1, col 1:
+    > 'a/
+      ^
+Invalid token.
+"#);
+
+    parse_error!(unmatched_tick_slash_2_, r"/a'",
+        r#"    at line 1, col 1:
+    > /a'
+      ^
+Invalid token.
+"#);
 
     //
     // parse errors that bubble up from the regex crate
@@ -213,4 +267,12 @@ Error parsing the regex literal: /a[/
          ^
     error: unclosed character class
 "#);
+
+    parse_error!(unrecognized_token_1_, "/foo/ /foo/",
+        r#"    at line 1, col 7:
+    > /foo/ /foo/
+            ^^^^^
+Unexpected token '/foo/'.
+"#);
+
 }
