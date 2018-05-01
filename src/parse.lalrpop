@@ -1,50 +1,54 @@
 use regex_syntax;
-use regex_syntax::ast::Ast;
 use lalrpop_util::ParseError;
-use ast::Expr;
+use ast::{Expr, ExprKind, Span};
+use error;
+use error::{Error, ErrorKind};
 
 grammar;
 
 extern {
-    type Error = String;
+    type Error = error::Error;
 }
 
 pub Expr: Box<Expr> = {
-    <r:RegexLiteral> => Box::new(Expr::RegexLiteral(r))
+    <l: @L> <e:ExprKind> <r: @R> =>
+        Box::new(Expr::new(e, Span { start: l, end: r }))
 };
 
-// TODO(ethan): record a Span somehow. See lalrpop-test/src/error.lalrpop
-// in the lalrpop repo for some ideas.
+ExprKind: ExprKind = {
+    <r:RegexLiteral> => ExprKind::RegexLiteral(r),
+};
 
-// TODO(ethan): make regex parse errors identify themselves by position well.
-//    - I might be able to just inject start and end positions into
-//      a regex Span ast variant and have it all Just Work (tm).
-//    - Otherwise I will have to just embed the regex error message in
-//      in my larger error message somehow.
-
-RegexLiteral: Ast = {
+RegexLiteral: regex_syntax::ast::Ast = {
     // raw literals
-    <s:r"'[^']+'"> =>? {
-        // TODO(ethan): inject the right Spans here. I might need to play
-        //              games with a Visitor
-
-        // TODO(ethan): split regex_syntax::escape up into two different
-        //              functions so that I can get just the first bit.
+    <l: @L> <s:r"'[^']+'"> <r: @R> =>? {
         use regex_syntax::ast::parse::Parser;
         match Parser::new().parse(&regex_syntax::escape(&s[1..(s.len() - 1)])) {
             Ok(re) => Ok(re),
-            Err(err) => Err(ParseError::User { error: format!("{}", err) }),
+            Err(err) => Err(ParseError::User {
+                error: Error::new(
+                    ErrorKind::RegexError {
+                        re: String::from(s),
+                        err: format!("{}", err),
+                    },
+                    Span { start: l, end: r }),
+            }),
         }
     },
 
     // regex literals
-    <s:r"/[^/]+/"> =>? {
-        // TODO(ethan): inject the right Spans here. I might need to play
-        //              games with a Visitor
+    <l: @L> <s:r"/[^/]+/"> <r: @R> =>? {
         use regex_syntax::ast::parse::Parser;
         match Parser::new().parse(&s[1..(s.len() - 1)]) {
             Ok(re) => Ok(re),
-            Err(err) => Err(ParseError::User { error: format!("{}", err) }),
+            Err(err) => Err(ParseError::User {
+                error: Error::new(
+                    ErrorKind::RegexError {
+                        re: String::from(s),
+                        err: format!("{}", err),
+                    },
+                    Span { start: l, end: r }),
+            }),
         }
     },
 };
