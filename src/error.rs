@@ -15,12 +15,12 @@ use ast::Span;
 /// Also worth noting is the fact that we don't impl std::error::Error.
 /// Again, this isn't user facing, so there is no need.
 #[derive(Debug)]
-pub struct Error {
+pub struct InternalError {
     kind: ErrorKind,
     span: Span,
 }
 
-impl Error {
+impl InternalError {
     pub fn new(kind: ErrorKind, span: Span) -> Self {
         Self {
             kind: kind,
@@ -39,7 +39,7 @@ impl Error {
 // We implement Display for Error so that we can just display an
 // lalrpop error directly, but we never do that without first special
 // casing our errors.
-impl fmt::Display for Error {
+impl fmt::Display for InternalError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f,
             r#"Bug in remake. Parse errors should never be directly formatted.
@@ -51,7 +51,7 @@ impl fmt::Display for Error {
 
 pub struct ErrorSrcOverlay<'a, 'e> {
     src: &'a str,
-    err: &'e Error,
+    err: &'e InternalError,
 }
 
 impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {

@@ -5,14 +5,15 @@ extern crate lalrpop_util;
 mod ast;
 mod parse;
 mod error;
+mod operators;
 
 //
 // I want the eventual interface to look something like:
 //
 // ```
-// let r = Remake::new(r"/foo/").unwrap();
-// let wrap_parens = Remake::new(r"(re) => '(' + re ')'").unwrap();
-// let re: Regex = wrap_parens.apply(r).unwrap().eval().unwrap();
+// let r = Remake::new(r"/foo/")?;
+// let wrap_parens = Remake::new(r"(re) => '(' + re ')'")?;
+// let re: Regex = wrap_parens.apply(r)?.eval()?;
 // ```
 //
 // The idea is that remake expressions can be parsed and then passed
@@ -22,6 +23,7 @@ mod error;
 
 use std::fmt;
 use regex::Regex;
+use error::InternalError;
 
 pub struct Remake {
     /// The parsed remake expression.
@@ -48,9 +50,10 @@ impl Remake {
                 return Err(Error::ParseError(match err {
                     lalrpop_util::ParseError::User { error } =>
                         format!("{}", error.overlay(&remake.src)),
+
                     lalrpop_util::ParseError::InvalidToken { location } =>
                         format!("{}",
-                            error::Error::new(
+                            InternalError::new(
                                 error::ErrorKind::InvalidToken,
                                 ast::Span { start: location, end: location + 1 }
                                 ).overlay(&remake.src)),
@@ -59,7 +62,7 @@ impl Remake {
                         token: Some((l, tok, r)), expected
                     } => format!(
                         "{}",
-                        error::Error::new(
+                        InternalError::new(
                             error::ErrorKind::UnrecognizedToken {
                                 token: tok.to_string(),
                                 expected: expected,
@@ -76,14 +79,13 @@ impl Remake {
     }
 
     /// Evaluate a Remake expression.
-    pub fn eval(&self) -> Result<Regex, Error> {
-        match self.expr.kind() {
-            &ast::ExprKind::RegexLiteral(ref regex_ast) =>
-                Ok(Regex::new(&format!("{}", regex_ast)).unwrap()),
-
-            &ast::ExprKind::ExprPoison =>
-                panic!("Bug in remake."),
+    pub fn eval(self) -> Result<Regex, Error> {
+        match self.expr.eval() {
+            Ok(ast) => Ok(Regex::new(&format!("{}", ast)).unwrap()),
+            Err(err) => Err(Error::RuntimeError(
+                            format!("{}", err.overlay(&self.src)))),
         }
+        // Ok(Regex::new(&format!("{}", self.expr.eval()?)).unwrap())
     }
 
     /// Evaluate some Remake source to produce a regular expression.
@@ -96,13 +98,15 @@ impl Remake {
 // TODO(ethan): impl std::error::Error
 #[derive(Clone)]
 pub enum Error {
+    /// A parse error occurred.
+    ///
     /// A parse error is just parameterized by a string because
     /// zero code is going to be both smart enough to correct the
     /// issue and dumb that it can't parse the human readable error.
     ParseError(String),
 
-    #[doc(hidden)]
-    __NonExaustive,
+    /// A runtime error occurred.
+    RuntimeError(String),
 }
 
 impl fmt::Debug for Error {
@@ -115,7 +119,10 @@ impl fmt::Debug for Error {
                 writeln!(f, "{}", err)?;
             }
 
-            &__NonExaustive => unreachable!(),
+            &RuntimeError(ref err) => {
+                writeln!(f, "\nremake evaluation error:")?;
+                writeln!(f, "{}", err)?;
+            }
         }
 
         Ok(())
@@ -149,6 +156,17 @@ mod tests {
         }
     }
 
+    macro_rules! no_mat {
+        ($test_name:ident, $remake_src:expr, $input:expr) => {
+            #[test]
+            fn $test_name() {
+                let re = Remake::compile($remake_src).unwrap();
+                assert!(!re.is_match($input),
+                    format!("/{:?}/ matches {:?}.", re, $input));
+            }
+        }
+    }
+
     macro_rules! parse_error {
         ($test_name:ident, $remake_src:expr, $expected_err_str:expr) => {
             #[test]
@@ -160,7 +178,34 @@ mod tests {
                         // When copying the right output into the test
                         // case uncommenting this can help debug.
                         //
-                        assert_eq!($expected_err_str, reason);
+                        // assert_eq!($expected_err_str, reason);
+                        
+                        if $expected_err_str != reason {
+                            // We unwrap rather than asserting or something
+                            // a little more reasonable so that we can see
+                            // the error output as the user sees it.
+                            result.clone().unwrap();
+                        }
+                    }
+                    _ => panic!("Should not parse."),
+                }
+            }
+        }
+    }
+
+    macro_rules! parse_error_pre {
+        ($test_name:ident, $remake_src:expr, $expected_err_str:expr) => {
+            #[test]
+            fn $test_name() {
+                let result = Remake::compile($remake_src);
+                match &result {
+                    &Ok(_) => panic!("Should not eval to anything."),
+                    &Err(Error::ParseError(ref reason)) => {
+                        let reason = &reason[0..$expected_err_str.len()];
+                        // When copying the right output into the test
+                        // case uncommenting this can help debug.
+                        //
+                        // assert_eq!($expected_err_str, reason);
                         
                         if $expected_err_str != reason {
                             // We unwrap rather than asserting or something
@@ -182,19 +227,17 @@ mod tests {
     mat!(lit_5, r"'\u{Currency_Symbol}'", r"\u{Currency_Symbol}");
 
     // remake parse errors
-    parse_error!(unmatched_tick_1_, r"'a",
+    parse_error_pre!(unmatched_tick_1_, r"'a",
         r#"    at line 1, col 1:
     > 'a
       ^
-Invalid token.
-"#);
+Invalid token."#);
 
-    parse_error!(unmatched_tick_2_, r"a'",
+    parse_error_pre!(unmatched_tick_2_, r"a'",
         r#"    at line 1, col 1:
     > a'
       ^
-Invalid token.
-"#);
+Unexpected token 'a'."#);
 
     parse_error!(unmatched_slash_1_, r"/a",
         r#"    at line 1, col 1:
@@ -203,12 +246,11 @@ Invalid token.
 Invalid token.
 "#);
 
-    parse_error!(unmatched_slash_2_, r"a/",
+    parse_error_pre!(unmatched_slash_2_, r"a/",
         r#"    at line 1, col 1:
     > a/
       ^
-Invalid token.
-"#);
+Unexpected token 'a'."#);
 
     parse_error!(unmatched_tick_slash_1_, r"'a/",
         r#"    at line 1, col 1:
@@ -268,11 +310,60 @@ Error parsing the regex literal: /a[/
     error: unclosed character class
 "#);
 
-    parse_error!(unrecognized_token_1_, "/foo/ /foo/",
+    parse_error_pre!(unrecognized_token_1_, "/foo/ /foo/",
         r#"    at line 1, col 7:
     > /foo/ /foo/
             ^^^^^
-Unexpected token '/foo/'.
-"#);
+Unexpected token '/foo/'. Expected one of:"#);
 
+    mat!(concat_1_, r"/foo/ . 'bar'", "foobar");
+    mat!(concat_2_, r"/foo/ . 'b[r'", "foob[r");
+    mat!(alt_1_, r"/foo/ | /bar/", "foo");
+
+    mat!(greedy_star_1_, r"/a/ *", "aaaaaaa");
+    mat!(greedy_star_2_, r"/a/ * . 'b'", "aaaaaaab");
+    mat!(greedy_star_3_, r"/a/ * . 'b'", "b");
+
+    mat!(lazy_star_1_, r"/a/ *?", "aaaaaaa");
+    mat!(lazy_star_2_, r"/a/ *? . 'b'", "aaaaaaab");
+    mat!(lazy_star_3_, r"/a/ *? . 'b'", "b");
+
+    mat!(greedy_plus_1_, r"/a/ +", "aaaaaaa");
+    mat!(greedy_plus_2_, r"/a/ + . 'b'", "aaaaaaab");
+    no_mat!(greedy_plus_3_, r"/a/ + . 'b'", "b");
+
+    mat!(lazy_plus_1_, r"/a/ +?", "aaaaaaa");
+    mat!(lazy_plus_2_, r"/a/ +? . 'b'", "aaaaaaab");
+    no_mat!(lazy_plus_3_, r"/a/ +? . 'b'", "b");
+
+    mat!(greedy_question_1_, r"/a/ ?", "a");
+    mat!(greedy_question_2_, r"/a/ ? . 'b'", "ab");
+    mat!(greedy_question_3_, r"/a/ ? . 'b'", "b");
+
+    mat!(lazy_question_1_, r"/a/ ??", "a");
+    mat!(lazy_question_2_, r"/a/ ?? . 'b'", "ab");
+    mat!(lazy_question_3_, r"/a/ ?? . 'b'", "b");
+
+    mat!(greedy_exact_1_, r"/a/ {3}", "aaa");
+    mat!(greedy_exact_2_, r"/a/ { 3} . 'b'", "aaab");
+
+    // lazyness does not matter for an exact repetition
+    no_mat!(lazy_exact_1_, r"/a/ {3}?", "a");
+    no_mat!(lazy_exact_2_, r"/a/ {3 }? . 'b'", "ab");
+    mat!(lazy_exact_3_, r"/a/ {3}?", "aaa");
+    mat!(lazy_exact_4_, r"/a/ {3 }? . 'b'", "aaab");
+
+
+    mat!(greedy_atleast_1_, r"/a/ {3,}", "aaaaaaaa");
+    mat!(greedy_atleast_2_, r"/a/ { 3 , } . 'b'", "aaaaaab");
+    no_mat!(greedy_atleast_3_, r"/a/ { 3 , } . 'b'", "ab");
+
+    mat!(lazy_atleast_1_, r"/a/ {3,}?", "aaaaaaaa");
+    mat!(lazy_atleast_2_, r"/a/ { 3 , }? . 'b'", "aaaaaab");
+    no_mat!(lazy_atleast_3_, r"/a/ { 3 , }? . 'b'", "ab");
+
+    // TODO(ethan): test captures.
+    //
+    // Make sure that cap cap /foo/ as blah
+    // captures "foo" in both slot zero and the named slot "blah"
 }
