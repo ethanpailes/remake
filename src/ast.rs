@@ -1,7 +1,9 @@
+use std::collections::HashMap;
+
 use regex_syntax;
 use regex_syntax::ast::{RepetitionKind, GroupKind};
 
-use error::InternalError;
+use error::{InternalError, ErrorKind};
 use operators;
 use util::POISON_SPAN;
 
@@ -11,6 +13,8 @@ pub struct Expr {
     pub span: Span,
 }
 
+type Value = Box<regex_syntax::ast::Ast>;
+
 impl Expr {
     pub fn new(kind: ExprKind, span: Span) -> Self {
         Self {
@@ -19,13 +23,13 @@ impl Expr {
         }
     }
 
-    pub fn eval(self) -> Result<Box<regex_syntax::ast::Ast>, InternalError> {
+    pub fn eval(self) -> Result<Value, InternalError> {
         self.eval_(&mut EvalEnv::new())
     }
 
     fn eval_(
         self,
-        _env: &mut EvalEnv,
+        env: &mut EvalEnv,
     ) -> Result<Box<regex_syntax::ast::Ast>, InternalError> {
 
         match self.kind {
@@ -33,9 +37,11 @@ impl Expr {
             ExprKind::BinOp(lhs, op, rhs) => {
                 match op {
                     BOp::Concat =>
-                        Ok(operators::concat(lhs.eval()?, rhs.eval()?)),
+                        Ok(operators::concat(
+                            lhs.eval_(env)?, rhs.eval_(env)?)),
                     BOp::Alt =>
-                        Ok(operators::alt(lhs.eval()?, rhs.eval()?))
+                        Ok(operators::alt(
+                            lhs.eval_(env)?, rhs.eval_(env)?))
                 }
             }
             ExprKind::UnaryOp(op, e) => {
@@ -49,7 +55,7 @@ impl Expr {
                                     kind: RepetitionKind::ZeroOrMore,
                                 },
                                 greedy: greedy,
-                                ast: e.eval()?,
+                                ast: e.eval_(env)?,
                             })))
                     }
                     UOp::RepeatOneOrMore(greedy) => {
@@ -61,7 +67,7 @@ impl Expr {
                                     kind: RepetitionKind::OneOrMore,
                                 },
                                 greedy: greedy,
-                                ast: e.eval()?,
+                                ast: e.eval_(env)?,
                             })))
                     }
                     UOp::RepeatZeroOrOne(greedy) => {
@@ -73,7 +79,7 @@ impl Expr {
                                     kind: RepetitionKind::ZeroOrOne,
                                 },
                                 greedy: greedy,
-                                ast: e.eval()?,
+                                ast: e.eval_(env)?,
                             })))
                     }
                     UOp::RepeatRange(greedy, range) => {
@@ -85,7 +91,7 @@ impl Expr {
                                     kind: RepetitionKind::Range(range),
                                 },
                                 greedy: greedy,
-                                ast: e.eval()?,
+                                ast: e.eval_(env)?,
                             })))
                     }
                 }
@@ -104,9 +110,27 @@ impl Expr {
                             ),
                             None => GroupKind::CaptureIndex(BOGUS_GROUP_INDEX),
                         },
-                        ast: e.eval()?,
+                        ast: e.eval_(env)?,
                     })))
             }
+
+            ExprKind::Block(statements, value) => {
+                env.push_block_env();
+                for s in statements {
+                    s.eval(env)?;
+                }
+                let res = value.eval_(env)?;
+                env.pop_block_env();
+
+                Ok(res)
+            }
+
+            ExprKind::Var(var) => {
+                let span = self.span;
+                env.lookup(var)
+                   .map_err(|e| InternalError::new(e, span))
+            }
+
             ExprKind::ExprPoison => panic!("Bug in remake."),
         }
     }
@@ -120,10 +144,38 @@ impl Expr {
 const BOGUS_GROUP_INDEX: u32 = 0;
 
 struct EvalEnv {
+    block_envs: Vec<HashMap<String, Value>>,
 }
 impl EvalEnv {
     fn new() -> Self {
-        EvalEnv {}
+        EvalEnv {
+            block_envs: vec![],
+        }
+    }
+
+    fn push_block_env(&mut self) {
+        self.block_envs.push(HashMap::new());
+    }
+
+    fn pop_block_env(&mut self) {
+        self.block_envs.pop();
+    }
+
+    fn bind(&mut self, var: String, v: Value) {
+        let idx = self.block_envs.len() - 1;
+        self.block_envs[idx].insert(var, v);
+    }
+
+    fn lookup(&self, var: String) -> Result<Value, ErrorKind> {
+        for env in self.block_envs.iter().rev() {
+            match env.get(&var) {
+                None => {},
+                // TODO(ethan): drop the clone
+                Some(val) => return Ok(val.clone()),
+            }
+        }
+
+        Err(ErrorKind::NameError { name: var })
     }
 }
 
@@ -133,6 +185,8 @@ pub enum ExprKind {
     UnaryOp(UOp, Box<Expr>),
     Capture(Box<Expr>, Option<String>),
     RegexLiteral(Box<regex_syntax::ast::Ast>),
+    Block(Vec<Statement>, Box<Expr>),
+    Var(String),
 
     /// A poison expression is never valid, but it lets us avoid copying
     /// the source string and still please the borrow checker.
@@ -152,6 +206,36 @@ pub enum UOp {
     RepeatOneOrMore(bool),
     RepeatZeroOrOne(bool),
     RepeatRange(bool, regex_syntax::ast::RepetitionRange),
+}
+
+#[derive(Debug)]
+pub struct Statement {
+    kind: StatementKind,
+    span: Span,
+}
+
+impl Statement {
+    pub fn new(kind: StatementKind, span: Span) -> Self {
+        Statement {
+            kind: kind,
+            span: span,
+        }
+    }
+
+    fn eval(self, env: &mut EvalEnv) -> Result<(), InternalError> {
+        match self.kind {
+            StatementKind::LetBinding(id, e) => {
+                let v = e.eval_(env)?;
+                env.bind(id.clone(), v);
+                Ok(())
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum StatementKind {
+    LetBinding(String, Box<Expr>),
 }
 
 #[derive(Debug)]

@@ -45,8 +45,8 @@ impl Remake {
             src: src,
         };
 
-        remake.expr = match parse::ExprParser::new().parse(&remake.src) {
-            Ok(expr) => *expr,
+        remake.expr = match parse::BlockBodyParser::new().parse(&remake.src) {
+            Ok(expr) => expr,
             Err(err) => {
                 return Err(Error::ParseError(match err {
                     lalrpop_util::ParseError::User { error } =>
@@ -130,12 +130,6 @@ impl fmt::Debug for Error {
     }
 }
 
-// TODO(ethan): Write all the basic combinators so that we can get an
-//              expression language going here.
-//              - It is probably worth making a POISON_SPAN the result
-//                of regex ASTs that are built up with remake concatination
-//                or alternation or whatever.
-// TODO(ethan): Write let expressions.
 // TODO(ethan): Cleanup and going over error messages to make sure that they
 //              are useful.
 // TODO(ethan): Docs.
@@ -268,6 +262,33 @@ mod tests {
         }
     }
 
+    macro_rules! runtime_error_pre {
+        ($test_name:ident, $remake_src:expr, $expected_err_str:expr) => {
+            #[test]
+            fn $test_name() {
+                let result = Remake::compile($remake_src);
+                match &result {
+                    &Ok(_) => panic!("Should not eval to anything."),
+                    &Err(Error::ParseError(_)) => panic!("Should parse."),
+                    &Err(Error::RuntimeError(ref reason)) => {
+                        let reason = &reason[0..$expected_err_str.len()];
+                        // When copying the right output into the test
+                        // case uncommenting this can help debug.
+                        //
+                        // assert_eq!($expected_err_str, reason);
+
+                        if $expected_err_str != reason {
+                            // We unwrap rather than asserting or something
+                            // a little more reasonable so that we can see
+                            // the error output as the user sees it.
+                            result.clone().unwrap();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     //
     // remake literals
     //
@@ -289,10 +310,10 @@ mod tests {
 Invalid token."#);
 
     parse_error_pre!(unmatched_tick_2_, r"a'",
-        r#"    at line 1, col 1:
+        r#"    at line 1, col 2:
     0001 > a'
-           ^
-Unexpected token 'a'."#);
+            ^
+Invalid token."#);
 
     parse_error!(unmatched_slash_1_, r"/a",
         r#"    at line 1, col 1:
@@ -302,10 +323,10 @@ Invalid token.
 "#);
 
     parse_error_pre!(unmatched_slash_2_, r"a/",
-        r#"    at line 1, col 1:
+        r#"    at line 1, col 2:
     0001 > a/
-           ^
-Unexpected token 'a'."#);
+            ^
+Invalid token."#);
 
     parse_error!(unmatched_tick_slash_1_, r"'a/",
         r#"    at line 1, col 1:
@@ -478,4 +499,41 @@ Unexpected token"#);
         ("foo", Some("b")));
     captures_named!(cap_remake_named_2_, r"cap cap /foo/ as blah", "foo",
                     ("_1", Some("foo")), ("blah", Some("foo")));
+
+    mat!(block_basic_1_, r"{ /a/ }", "a");
+
+    mat!(block_repeat_1_, r"{ /a/{2} }", "aa");
+    no_mat!(block_repeat_2_, r"{ /a/{3,} }", "aa");
+
+    mat!(block_unused_let_1_, r#"{
+        let foo = /a/;
+        /b/
+    }"#, "b");
+
+    mat!(toplevel_unused_let_1_, r#"
+        let foo = /a/;
+        /b/
+    "#, "b");
+
+    mat!(toplevel_let_1_, r#"
+        let foo = /a/;
+        foo
+    "#, "a");
+
+    mat!(toplevel_let_2_, r#"
+        let foo = /a/;
+        foo . /bar/
+    "#, "abar");
+
+
+    runtime_error_pre!(name_error_1_, r#"
+        foo
+    "#, r#"    at line 2, col 9:
+    0001 > 
+    0002 >         foo
+                   ^^^
+    0003 >     
+NameError: unknown variable 'foo'.
+"#);
+
 }

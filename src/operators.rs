@@ -14,8 +14,6 @@ use util::POISON_SPAN;
 //
 
 pub fn concat(lhs: Box<Ast>, rhs: Box<Ast>) -> Box<Ast> {
-    println!("lhs={} rhs={}", lhs.to_string(), rhs.to_string());
-
     match (*lhs, *rhs) {
         (Ast::Concat(ref lconcat), Ast::Concat(ref rconcat)) => {
             Box::new(Ast::Concat(Concat {

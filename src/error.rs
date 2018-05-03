@@ -81,6 +81,9 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
                 }
                 write!(f, "\n")?;
             }
+            &NameError { ref name } => {
+                writeln!(f, "NameError: unknown variable '{}'.", name)?;
+            }
         }
 
         Ok(())
@@ -97,6 +100,9 @@ pub enum ErrorKind {
     RegexError {
         re: String,
         err: String,
+    },
+    NameError {
+        name: String,
     },
 }
 

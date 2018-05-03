@@ -2,7 +2,7 @@ use std::str::FromStr;
 use regex_syntax;
 use regex_syntax::ast::RepetitionRange;
 use lalrpop_util::ParseError;
-use ast::{Expr, ExprKind, Span, BOp, UOp};
+use ast::{Expr, ExprKind, Span, BOp, UOp, StatementKind, Statement};
 use error;
 use error::{InternalError, ErrorKind};
 
@@ -14,13 +14,31 @@ extern {
     type Error = error::InternalError;
 }
 
-pub Expr: Box<Expr> = {
+
+pub BlockBody: Expr = {
+    <l: @L> <s: (<Statement>)*> <e: Expr0> <r: @R> => {
+        Expr {
+            kind: ExprKind::Block(s, e),
+            span: Span { start: l, end: r }
+        }
+    }
+};
+
+//////////////////////////////////////////////////////////////////////////
+//                                                                      //
+//                            Expressions                               //
+//                                                                      //
+//////////////////////////////////////////////////////////////////////////
+
+Expr0: Box<Expr> = {
     <l: @L> <e:ExprKind0> <r: @R> =>
-        Box::new(Expr::new(e, Span { start: l, end: r }))
+        Box::new(Expr::new(e, Span { start: l, end: r })),
+    <l: @L> "{" <b:BlockBody> "}" <r: @R> =>
+        Box::new(Expr::new(b.kind, Span { start: l, end: r })),
 };
 ExprKind0: ExprKind = {
-    <e1:Expr> "." <e2:Expr1> => ExprKind::BinOp(e1, BOp::Concat, e2),
-    <e1:Expr> "|" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Alt, e2),
+    <e1:Expr0> "." <e2:Expr1> => ExprKind::BinOp(e1, BOp::Concat, e2),
+    <e1:Expr0> "|" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Alt, e2),
 
     ExprKind1
 };
@@ -89,6 +107,7 @@ Expr4: Box<Expr> = {
 };
 ExprKind4: ExprKind = {
     <r:RegexLiteral> => ExprKind::RegexLiteral(r),
+    <var:Id> => ExprKind::Var(var),
     "(" <ExprKind0> ")",
 };
 
@@ -133,4 +152,20 @@ RegexLiteral: Box<regex_syntax::ast::Ast> = {
             }),
         }
     },
+};
+
+//////////////////////////////////////////////////////////////////////////
+//                                                                      //
+//                            Statements                                //
+//                                                                      //
+//////////////////////////////////////////////////////////////////////////
+
+Statement: Statement = {
+    <l: @L> <s:StatementKind> ";" <r: @R> =>
+        Statement::new(s, Span { start: l, end: r })
+};
+StatementKind: StatementKind = {
+    "let" <id:Id> "=" <e:Expr0> => {
+        StatementKind::LetBinding(String::from(id), e)
+    }
 };
