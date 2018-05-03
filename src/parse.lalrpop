@@ -8,8 +8,6 @@ use error::{InternalError, ErrorKind};
 
 grammar;
 
-// TODO: the syntax should look like dynamic rust
-
 extern {
     type Error = error::InternalError;
 }
@@ -112,8 +110,15 @@ ExprKind4: ExprKind = {
 };
 
 Int32: u32 = {
-    // TODO(ethan): bubble the overflow up as an error.
-    r"[0-9]+" => u32::from_str(<>).unwrap()
+    <l: @L> <n:r"[0-9]+"> <r: @R> =>?
+        u32::from_str(n)
+            .map_err(|e| ParseError::User {
+                            error: InternalError::new(
+                                ErrorKind::NumParseError {
+                                    num_str: n.to_string()
+                                },
+                                Span { start: l, end: r })
+                         })
 };
 
 Id: String = {

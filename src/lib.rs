@@ -1,6 +1,7 @@
 extern crate regex_syntax;
 extern crate regex;
 extern crate lalrpop_util;
+extern crate failure;
 
 mod ast;
 mod parse;
@@ -106,19 +107,23 @@ impl Remake {
     }
 }
 
-// TODO(ethan): use failure?
-// TODO(ethan): impl std::error::Error
 #[derive(Clone)]
 pub enum Error {
     /// A parse error occurred.
-    ///
-    /// A parse error is just parameterized by a string because
-    /// zero code is going to be both smart enough to correct the
-    /// issue and dumb that it can't parse the human readable error.
     ParseError(String),
 
     /// A runtime error occurred.
     RuntimeError(String),
+}
+
+impl failure::Fail for Error {}
+
+// The debug formatter already provides a user-facing error so
+// that .unwrap() will result in quick feedback.
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 impl fmt::Debug for Error {
@@ -143,8 +148,17 @@ impl fmt::Debug for Error {
 
 // TODO(ethan): Cleanup and going over error messages to make sure that they
 //              are useful.
+//              - Travis
+//              - Code coverage
+//              - Refactor tests
+//              - Refactor evaluation into its own module
 // TODO(ethan): Docs.
-// TODO(ethan): Run rustfmt
+//              - Rustdocs
+//              - README.md
+//                  - Badges
+//                  - Point to documentation
+//                  - Point to crates.io (chicken/egg here)
+// TODO(ethan): Run rustfmt (how do I avoid mangling multi-line strings?)
 // TODO(ethan): Release!!! (don't talk about it until we have lambdas though).
 
 #[cfg(test)]
@@ -545,6 +559,14 @@ Unexpected token"#);
                    ^^^
     0003 >     
 NameError: unknown variable 'foo'.
+"#);
+
+    parse_error!(num_too_long_1_,
+        r"'a'{11111111111111111111111111111111111111111111111111111111}",
+        r#"    at line 1, col 5:
+    0001 > 'a'{11111111111111111111111111111111111111111111111111111111}
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Error parsing 11111111111111111111111111111111111111111111111111111111 as a number. Literal too long.
 "#);
 
 }

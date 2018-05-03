@@ -84,6 +84,10 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
             &NameError { ref name } => {
                 writeln!(f, "NameError: unknown variable '{}'.", name)?;
             }
+            &NumParseError { ref num_str } => {
+                writeln!(f, "Error parsing {} as a number. Literal too long.",
+                            num_str)?;
+            }
         }
 
         Ok(())
@@ -104,6 +108,9 @@ pub enum ErrorKind {
     NameError {
         name: String,
     },
+    NumParseError {
+        num_str: String,
+    }
 }
 
 #[derive(Debug)]
