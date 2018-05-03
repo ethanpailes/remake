@@ -169,7 +169,6 @@ impl PosSpan {
         if self.start_line != self.end_line {
             self.highlight_multiline(src)
         } else {
-            const CONTEXT_LINES: usize = 2;
 
             let mut s = format!("at line {}, col {}:\n",
                 self.start_line, self.start_col);
@@ -178,9 +177,9 @@ impl PosSpan {
                 let line_no = i + 1;
 
                 // Print two lines of context
-                if line_no > self.start_line.saturating_sub(CONTEXT_LINES)
-                    && line_no < self.start_line.saturating_add(CONTEXT_LINES) {
-                    s.push_str("> ");
+                if line_no > self.start_line.saturating_sub(Self::CONTEXT_LINES)
+                    && line_no < self.start_line.saturating_add(Self::CONTEXT_LINES) {
+                    s.push_str(&format!("{:04} > ", line_no));
                     s.push_str(line);
                     s.push('\n');
                 }
@@ -188,7 +187,7 @@ impl PosSpan {
                 // Print uppercut chars indicating the section that
                 // caused the error.
                 if line_no == self.start_line {
-                    s.push_str("  "); // to match the start line indicator
+                    s.push_str("       "); // to match the start line indicator
                     for i in 0..(self.end_col - 1) {
                         let col_no = i + 1;
 
@@ -206,9 +205,66 @@ impl PosSpan {
         }
     }
 
-    fn highlight_multiline(&self, _src: &str) -> String {
-        "TODO HIGHLIGHT MULTILINE".to_string()
+    fn highlight_multiline(&self, src: &str) -> String {
+        let mut s = format!(
+            "starting at line {}, col {} and ending at line {}, col {}:\n",
+            self.start_line, self.start_col,
+            self.end_line, self.end_col);
+
+        let mut printed_dots = false;
+        for (i, line) in src.split("\n").enumerate() {
+            let line_no = i + 1;
+
+            // Print two lines of context around the starting line
+            if line_no > self.start_line.saturating_sub(Self::CONTEXT_LINES)
+                && line_no < self.start_line.saturating_add(Self::CONTEXT_LINES)
+            {
+                s.push_str(&format!("{:04}  > ", line_no));
+                s.push_str(line);
+                s.push('\n');
+            }
+
+            if line_no > self.start_line.saturating_add(Self::CONTEXT_LINES)
+                && line_no < self.end_line.saturating_sub(Self::CONTEXT_LINES)
+                && !printed_dots
+            {
+                s.push_str("...\n");
+                printed_dots = true;
+            }
+
+            if line_no > self.end_line.saturating_sub(Self::CONTEXT_LINES)
+                && line_no < self.end_line.saturating_add(Self::CONTEXT_LINES)
+                && !(line_no > self.start_line.saturating_sub(Self::CONTEXT_LINES)
+                    && line_no < self.start_line.saturating_add(Self::CONTEXT_LINES))
+            {
+                s.push_str(&format!("{:04}  > ", line_no));
+                s.push_str(line);
+                s.push('\n');
+            }
+
+            // Print uppercut chars indicating the section that
+            // caused the error.
+            if line_no == self.start_line {
+                s.push_str("start >"); // to match the start line indicator
+                for _ in 0..self.start_col {
+                    s.push(' ');
+                }
+                s.push_str("^\n");
+            }
+
+            if line_no == self.end_line {
+                s.push_str("end   >"); // to match the start line indicator
+                for _ in 0..(self.end_col - 1) {
+                    s.push(' ');
+                }
+                s.push_str("^\n");
+            }
+        }
+
+        s
     }
+    
+    const CONTEXT_LINES: usize = 2;
 }
 
 //////////////////////////////////////////////////////////////////////////

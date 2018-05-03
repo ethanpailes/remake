@@ -268,49 +268,56 @@ mod tests {
         }
     }
 
+    //
+    // remake literals
+    //
+
     mat!(lit_1, r"/a/", "a");
     mat!(lit_2, r"'a'", "a");
     mat!(lit_3, r"/\p{Currency_Symbol}/", r"$");
     mat!(lit_4, r"'\p{Currency_Symbol}'", r"\p{Currency_Symbol}");
     mat!(lit_5, r"'\u{Currency_Symbol}'", r"\u{Currency_Symbol}");
 
+    //
     // remake parse errors
+    //
+    
     parse_error_pre!(unmatched_tick_1_, r"'a",
         r#"    at line 1, col 1:
-    > 'a
-      ^
+    0001 > 'a
+           ^
 Invalid token."#);
 
     parse_error_pre!(unmatched_tick_2_, r"a'",
         r#"    at line 1, col 1:
-    > a'
-      ^
+    0001 > a'
+           ^
 Unexpected token 'a'."#);
 
     parse_error!(unmatched_slash_1_, r"/a",
         r#"    at line 1, col 1:
-    > /a
-      ^
+    0001 > /a
+           ^
 Invalid token.
 "#);
 
     parse_error_pre!(unmatched_slash_2_, r"a/",
         r#"    at line 1, col 1:
-    > a/
-      ^
+    0001 > a/
+           ^
 Unexpected token 'a'."#);
 
     parse_error!(unmatched_tick_slash_1_, r"'a/",
         r#"    at line 1, col 1:
-    > 'a/
-      ^
+    0001 > 'a/
+           ^
 Invalid token.
 "#);
 
     parse_error!(unmatched_tick_slash_2_, r"/a'",
         r#"    at line 1, col 1:
-    > /a'
-      ^
+    0001 > /a'
+           ^
 Invalid token.
 "#);
 
@@ -320,8 +327,8 @@ Invalid token.
     
     parse_error!(re_parse_err_1_, r"/a[/", 
         r#"    at line 1, col 1:
-    > /a[/
-      ^^^^
+    0001 > /a[/
+           ^^^^
 Error parsing the regex literal: /a[/
     regex parse error:
         a[
@@ -331,8 +338,8 @@ Error parsing the regex literal: /a[/
 
     parse_error!(re_parse_err_2_, r"/a[]/",
         r#"    at line 1, col 1:
-    > /a[]/
-      ^^^^^
+    0001 > /a[]/
+           ^^^^^
 Error parsing the regex literal: /a[]/
     regex parse error:
         a[]
@@ -347,10 +354,10 @@ Error parsing the regex literal: /a[]/
 
         "#,
         r#"    at line 3, col 13:
-    > 
-    >             /a[/
-                  ^^^^
-    > 
+    0002 > 
+    0003 >             /a[/
+                       ^^^^
+    0004 > 
 Error parsing the regex literal: /a[/
     regex parse error:
         a[
@@ -358,11 +365,50 @@ Error parsing the regex literal: /a[/
     error: unclosed character class
 "#);
 
-    parse_error_pre!(unrecognized_token_1_, "/foo/ /foo/",
+    parse_error_pre!(unrecognized_token_1_, r"/foo/ /foo/",
         r#"    at line 1, col 7:
-    > /foo/ /foo/
-            ^^^^^
+    0001 > /foo/ /foo/
+                 ^^^^^
 Unexpected token '/foo/'. Expected one of:"#);
+
+    parse_error_pre!(binary_plus_1_, r"/foo/ + /bar/",
+        r#"    at line 1, col 9:
+    0001 > /foo/ + /bar/
+                   ^^^^^
+Unexpected token '/bar/'. Expected one of:"#);
+
+    parse_error_pre!(binary_plus_multiline_1_, r#"/foo/ +
+        /bar
+        /"#, r#"    starting at line 2, col 9 and ending at line 3, col 10:
+    0001  > /foo/ +
+    0002  >         /bar
+    start >         ^
+    0003  >         /
+    end   >         ^
+Unexpected token '/bar
+        /'. Expected one of:"#);
+
+    parse_error_pre!(binary_plus_multiline_2_, r#"
+        /foo/ + /
+        
+        bar
+
+
+
+        /"#, r#"    starting at line 2, col 17 and ending at line 8, col 10:
+    0001  > 
+    0002  >         /foo/ + /
+    start >                 ^
+    0003  >         
+    ...
+    0007  > 
+    0008  >         /
+    end   >         ^
+Unexpected token"#);
+
+    //
+    // Remake expressions.
+    //
 
     mat!(concat_1_, r"/foo/ . 'bar'", "foobar");
     mat!(concat_2_, r"/foo/ . 'b[r'", "foob[r");
@@ -427,7 +473,6 @@ Unexpected token '/foo/'. Expected one of:"#);
         Some("blah"), None, Some("c"));
     captures!(cap_remake_mixed_4_, r"/(a)(b)(c)/ . cap /blah/", "abcblah",
         Some("a"), Some("b"), Some("c"), Some("blah"));
-
 
     captures_named!(cap_remake_named_1_, r"/a/ . cap /b/ as foo . /a/", "aba",
         ("foo", Some("b")));
