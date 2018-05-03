@@ -13,13 +13,24 @@ mod util;
 //
 // ```
 // let r = Remake::new(r"/foo/")?;
-// let wrap_parens = Remake::new(r"(re) => '(' + re ')'")?;
+// let wrap_parens = Remake::new(r"fn (re) { '(' + . re . ')' }")?;
 // let re: Regex = wrap_parens.apply(r)?.eval()?;
 // ```
 //
 // The idea is that remake expressions can be parsed and then passed
 // around within rust as opaque expressions. They can then be combined
 // through function application.
+//
+// This design would work well with an ML-style all-functions-have-
+// one-argument sort of approach, but I want remake to semantically
+// be basically dynamically typed rust with a strong focus on regular
+// expression manipulation. A possible solution is some light trait
+// abuse where we define a sealed (using the sealed trait pattern)
+// RemakeArgument trait and then impl it for Remake, tuples of RemakeArgument,
+// (and Vecs of RemakeArgument, IntoIters of RemakeArgument,
+//  and HashMaps of RemakeArgument once corresponding data structures
+//  have been added to the language). I think the user would mostly not
+// need to know about the RemakeArgument trait.
 //
 
 use std::fmt;
