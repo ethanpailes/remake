@@ -148,7 +148,6 @@ impl fmt::Debug for Error {
 
 // TODO(ethan): Cleanup and going over error messages to make sure that they
 //              are useful.
-//              - Travis
 //              - Code coverage
 //              - Refactor tests
 //              - Refactor evaluation into its own module
