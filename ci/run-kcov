@@ -1,0 +1,30 @@
+#!/bin/bash
+
+set -e
+
+tmpdir=$(mktemp -d)
+coveralls_id=
+
+while true; do
+  case "$1" in
+    --coveralls-id)
+      coveralls_id="$2"
+      shift 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+kcov \
+    --verify \
+    --include-pattern '/remake/src/' \
+    "$tmpdir/remake" \
+    $(find ./target/debug -executable -wholename "./target/debug/remake-*" | head -n1)
+
+if [ -n "$coveralls_id" ]; then
+  kcov --verify --coveralls-id=$coveralls_id --merge target/cov "$tmpdir"/*
+else
+  kcov --verify --merge target/cov "$tmpdir"/*
+fi
