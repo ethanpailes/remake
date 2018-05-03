@@ -9,9 +9,6 @@ use error::{InternalError, ErrorKind};
 grammar;
 
 // TODO: the syntax should look like dynamic rust
-// TODO: capture syntax
-//          - unnamed capture: cap <expr>
-//          - named capture: cap <expr> as <id>
 
 extern {
     type Error = error::InternalError;
@@ -22,8 +19,8 @@ pub Expr: Box<Expr> = {
         Box::new(Expr::new(e, Span { start: l, end: r }))
 };
 ExprKind0: ExprKind = {
-    // "cap" <e:Expr> "as" <name:Id> => ExprKind::Capture(e, Some(name)),
-    <e:CapExpr> "as" <name:Id> => ExprKind::Capture(e, Some(name)),
+    <e1:Expr> "." <e2:Expr1> => ExprKind::BinOp(e1, BOp::Concat, e2),
+    <e1:Expr> "|" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Alt, e2),
 
     ExprKind1
 };
@@ -33,14 +30,9 @@ Expr1: Box<Expr> = {
         Box::new(Expr::new(e, Span { start: l, end: r }))
 };
 ExprKind1: ExprKind = {
-    // "cap" <e:Expr1> => ExprKind::Capture(e, None),
-    <CapExpr> => ExprKind::Capture(<>, None),
+    <e:CapExpr> "as" <name:Id> => ExprKind::Capture(e, Some(name)),
 
     ExprKind2
-};
-
-CapExpr: Box<Expr> = {
-    "cap" <e:Expr1> => e
 };
 
 Expr2: Box<Expr> = {
@@ -48,9 +40,12 @@ Expr2: Box<Expr> = {
         Box::new(Expr::new(e, Span { start: l, end: r }))
 };
 ExprKind2: ExprKind = {
-    <e1:Expr2> "." <e2:Expr3> => ExprKind::BinOp(e1, BOp::Concat, e2),
-    <e1:Expr2> "|" <e2:Expr3> => ExprKind::BinOp(e1, BOp::Alt, e2),
+    <CapExpr> => ExprKind::Capture(<>, None),
     ExprKind3
+};
+
+CapExpr: Box<Expr> = {
+    "cap" <e:Expr2> => e
 };
 
 Expr3: Box<Expr> = {

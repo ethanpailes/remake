@@ -6,6 +6,7 @@ mod ast;
 mod parse;
 mod error;
 mod operators;
+mod util;
 
 //
 // I want the eventual interface to look something like:
@@ -81,7 +82,7 @@ impl Remake {
     /// Evaluate a Remake expression.
     pub fn eval(self) -> Result<Regex, Error> {
         match self.expr.eval() {
-            Ok(ast) => Ok(Regex::new(&format!("{}", ast)).unwrap()),
+            Ok(ast) => Ok(Regex::new(&ast.to_string()).unwrap()),
             Err(err) => Err(Error::RuntimeError(
                             format!("{}", err.overlay(&self.src)))),
         }
@@ -152,6 +153,53 @@ mod tests {
                 let re = Remake::compile($remake_src).unwrap();
                 assert!(re.is_match($input),
                     format!("/{:?}/ does not match {:?}.", re, $input));
+            }
+        }
+    }
+
+    macro_rules! captures {
+        ($test_name:ident, $remake_src:expr, $input:expr, $( $group:expr ),*) => {
+            #[test]
+            fn $test_name() {
+                let re = Remake::compile($remake_src)
+                            .expect("The regex to compile.");
+                let expected = vec![$($group),*];
+                let actual = re.captures($input)
+                               .expect("The regex to match.")
+                               .iter()
+                               .map(|mat| mat.map(|g| g.as_str()))
+                               .collect::<Vec<_>>();
+
+                assert_eq!(&expected[..], &actual[1..],
+                    "Captures did not match. re={:?}", re);
+            }
+        }
+    }
+
+    macro_rules! captures_named {
+        ($test_name:ident, $remake_src:expr, $input:expr, $( $group:expr ),*) => {
+            #[test]
+            fn $test_name() {
+                use std::str::FromStr;
+
+                let re = Remake::compile($remake_src)
+                            .expect("The regex to compile.");
+                let expected_caps = vec![$($group),*];
+                let num_name_re =
+                    Remake::compile("'_' . cap /[0-9]+/").unwrap();
+
+                let caps = re.captures($input).expect("The regex to match.");
+
+                for &(name, result) in expected_caps.iter() {
+                    let cap = match num_name_re.captures(name) {
+                        Some(c) =>
+                            caps.get(usize::from_str(&c[1]).unwrap())
+                                .map(|m| m.as_str()),
+                        None => caps.name(name).map(|m| m.as_str()),
+                    };
+
+                    assert_eq!(cap, result, "Group '{}' did not match", name);
+                }
             }
         }
     }
@@ -362,8 +410,27 @@ Unexpected token '/foo/'. Expected one of:"#);
     mat!(lazy_atleast_2_, r"/a/ { 3 , }? . 'b'", "aaaaaab");
     no_mat!(lazy_atleast_3_, r"/a/ { 3 , }? . 'b'", "ab");
 
-    // TODO(ethan): test captures.
-    //
-    // Make sure that cap cap /foo/ as blah
-    // captures "foo" in both slot zero and the named slot "blah"
+    captures!(cap_basic_1_, r"/a(b)a/", "aba",
+        Some("b"));
+
+    captures!(cap_remake_1_, r"/a/ . cap /b/ . /a/", "aba",
+        Some("b"));
+    captures!(cap_remake_2_, r"cap (/a/ . cap /b/ . /a/)", "aba",
+        Some("aba"), Some("b"));
+
+    captures!(cap_remake_mixed_1_, r"cap (/a/ . /(b)/ . /a/)", "aba",
+        Some("aba"), Some("b"));
+    captures!(cap_remake_mixed_2_, r"/(a)/ . cap (/a/ . /(b)/ . /a/)", "aaba",
+        Some("a"), Some("aba"), Some("b"));
+    captures!(cap_remake_mixed_3_, r"cap /blah/ . (/(a)/ | (/b/ . cap /c/))", 
+        "blahbc",
+        Some("blah"), None, Some("c"));
+    captures!(cap_remake_mixed_4_, r"/(a)(b)(c)/ . cap /blah/", "abcblah",
+        Some("a"), Some("b"), Some("c"), Some("blah"));
+
+
+    captures_named!(cap_remake_named_1_, r"/a/ . cap /b/ as foo . /a/", "aba",
+        ("foo", Some("b")));
+    captures_named!(cap_remake_named_2_, r"cap cap /foo/ as blah", "foo",
+                    ("_1", Some("foo")), ("blah", Some("foo")));
 }

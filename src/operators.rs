@@ -1,9 +1,8 @@
 ///
 /// Utilities for manipulating regex ASTs
 ///
-use regex_syntax::ast::{Ast, Concat, Alternation};
-
-// TODO(ethan): use poison span?
+use regex_syntax::ast::{Ast, Concat, Alternation, Group, GroupKind, Flags};
+use util::POISON_SPAN;
 
 //
 // The fact that regex_syntax::ast::Ast impls drop makes it really hard
@@ -15,6 +14,8 @@ use regex_syntax::ast::{Ast, Concat, Alternation};
 //
 
 pub fn concat(lhs: Box<Ast>, rhs: Box<Ast>) -> Box<Ast> {
+    println!("lhs={} rhs={}", lhs.to_string(), rhs.to_string());
+
     match (*lhs, *rhs) {
         (Ast::Concat(ref lconcat), Ast::Concat(ref rconcat)) => {
             Box::new(Ast::Concat(Concat {
@@ -50,9 +51,28 @@ pub fn concat(lhs: Box<Ast>, rhs: Box<Ast>) -> Box<Ast> {
         }
 
         (l, r) => {
+            // The regex crate has not public dependency on regex-syntax,
+            // which means that we have no way to just pass an AST to
+            // the regex engine for compilation. One of the issues with this
+            // is that we will lose any structure in the AST which does not
+            // have a textual representation. In particular:
+            //
+            //     concat( 'foo', alt('a', 'bar') )
+            //
+            // will pretty print as:
+            //
+            //     fooa|bar
+            //
+            // then parse as:
+            //
+            //     alt( 'fooa', 'bar' )
+            // 
+            // which is obviously wrong. The solution is to inject a bunch
+            // of non-capturing groups. Sad bois.
             Box::new(Ast::Concat(Concat {
                 span: l.span().with_end(r.span().end),
-                asts: vec![l, r],
+                asts: vec![noncapturing_group(Box::new(l)),
+                           noncapturing_group(Box::new(r))],
             }))
         }
     }
@@ -94,6 +114,9 @@ pub fn alt(lhs: Box<Ast>, rhs: Box<Ast>) -> Box<Ast> {
         }
 
         (l, r) => {
+            // There is always a textual indicator of an alternation, so
+            // we don't need to wrap the expressions in a non-capturing
+            // group.
             Box::new(Ast::Alternation(Alternation {
                 span: l.span().with_end(r.span().end),
                 asts: vec![l, r],
@@ -102,7 +125,14 @@ pub fn alt(lhs: Box<Ast>, rhs: Box<Ast>) -> Box<Ast> {
     }
 }
 
-
-trait Fuse {
-    fn fuse(self, rhs: Self) -> Self;
+fn noncapturing_group(ast: Box<Ast>) -> Ast {
+    Ast::Group(Group {
+        span: POISON_SPAN,
+        kind: GroupKind::NonCapturing(Flags {
+            span: POISON_SPAN,
+            items: vec![],
+        }),
+        ast: ast,
+    })
 }
+

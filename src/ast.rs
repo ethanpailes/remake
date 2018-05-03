@@ -3,6 +3,7 @@ use regex_syntax::ast::{RepetitionKind, GroupKind};
 
 use error::InternalError;
 use operators;
+use util::POISON_SPAN;
 
 #[derive(Debug)]
 pub struct Expr {
@@ -24,16 +25,8 @@ impl Expr {
 
     fn eval_(
         self,
-        env: &mut EvalEnv,
+        _env: &mut EvalEnv,
     ) -> Result<Box<regex_syntax::ast::Ast>, InternalError> {
-
-        // TODO(ethan): There are some cases where it is not clear that there
-        //              is a sensible value to give a regex ast span. Idk what
-        //              to do there.
-        let poison_span = regex_syntax::ast::Span::new(
-            regex_syntax::ast::Position::new(0, 1, 1),
-            regex_syntax::ast::Position::new(0, 1, 1),
-        );
 
         match self.kind {
             ExprKind::RegexLiteral(r) => Ok(r),
@@ -50,9 +43,9 @@ impl Expr {
                     UOp::RepeatZeroOrMore(greedy) => {
                         Ok(Box::new(regex_syntax::ast::Ast::Repetition(
                             regex_syntax::ast::Repetition {
-                                span: poison_span,
+                                span: POISON_SPAN,
                                 op: regex_syntax::ast::RepetitionOp {
-                                    span: poison_span,
+                                    span: POISON_SPAN,
                                     kind: RepetitionKind::ZeroOrMore,
                                 },
                                 greedy: greedy,
@@ -62,9 +55,9 @@ impl Expr {
                     UOp::RepeatOneOrMore(greedy) => {
                         Ok(Box::new(regex_syntax::ast::Ast::Repetition(
                             regex_syntax::ast::Repetition {
-                                span: poison_span,
+                                span: POISON_SPAN,
                                 op: regex_syntax::ast::RepetitionOp {
-                                    span: poison_span,
+                                    span: POISON_SPAN,
                                     kind: RepetitionKind::OneOrMore,
                                 },
                                 greedy: greedy,
@@ -74,9 +67,9 @@ impl Expr {
                     UOp::RepeatZeroOrOne(greedy) => {
                         Ok(Box::new(regex_syntax::ast::Ast::Repetition(
                             regex_syntax::ast::Repetition {
-                                span: poison_span,
+                                span: POISON_SPAN,
                                 op: regex_syntax::ast::RepetitionOp {
-                                    span: poison_span,
+                                    span: POISON_SPAN,
                                     kind: RepetitionKind::ZeroOrOne,
                                 },
                                 greedy: greedy,
@@ -86,9 +79,9 @@ impl Expr {
                     UOp::RepeatRange(greedy, range) => {
                         Ok(Box::new(regex_syntax::ast::Ast::Repetition(
                             regex_syntax::ast::Repetition {
-                                span: poison_span,
+                                span: POISON_SPAN,
                                 op: regex_syntax::ast::RepetitionOp {
-                                    span: poison_span,
+                                    span: POISON_SPAN,
                                     kind: RepetitionKind::Range(range),
                                 },
                                 greedy: greedy,
@@ -98,28 +91,18 @@ impl Expr {
                 }
             }
             ExprKind::Capture(e, name) => {
-                // TODO(ethan): Think through the semantics a little
-                //              more closely here. Should the same expression
-                //              always get the same group index, or a new
-                //              one every time it is evaluated (as is the
-                //              case with this impl). I think this will
-                //              be worth revisiting when I look at function
-                //              impl.
-                let index = env.group_idx;
-                env.group_idx += 1;
-
                 Ok(Box::new(regex_syntax::ast::Ast::Group(
                     regex_syntax::ast::Group {
-                        span: poison_span,
+                        span: POISON_SPAN,
                         kind: match name {
                             Some(n) => GroupKind::CaptureName(
                                 regex_syntax::ast::CaptureName {
-                                    span: poison_span,
+                                    span: POISON_SPAN,
                                     name: n,
-                                    index: index,
+                                    index: BOGUS_GROUP_INDEX,
                                 }
                             ),
-                            None => GroupKind::CaptureIndex(index),
+                            None => GroupKind::CaptureIndex(BOGUS_GROUP_INDEX),
                         },
                         ast: e.eval()?,
                     })))
@@ -129,14 +112,18 @@ impl Expr {
     }
 }
 
+/// We don't have to spend any effort assigning indicies to groups because
+/// we are going to pretty-print the AST and have regex just parse it.
+/// If we passed the AST to the regex crate directly, we would need some
+/// way to thread the group index through its parser. This way we can
+/// just ignore the whole problem.
+const BOGUS_GROUP_INDEX: u32 = 0;
+
 struct EvalEnv {
-    group_idx: u32,
 }
 impl EvalEnv {
     fn new() -> Self {
-        EvalEnv {
-            group_idx: 0
-        }
+        EvalEnv {}
     }
 }
 
