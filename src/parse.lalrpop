@@ -6,12 +6,15 @@ use ast::{Expr, ExprKind, Span, BOp, UOp, StatementKind, Statement};
 use error;
 use error::{InternalError, ErrorKind};
 
+// TODO(ethan): add support for escaping the terminating chars in
+//              a regex literal. Don't add it for single quote
+//              regex literals.
+
 grammar;
 
 extern {
     type Error = error::InternalError;
 }
-
 
 pub BlockBody: Expr = {
     <l: @L> <s: (<Statement>)*> <e: Expr0> <r: @R> => {

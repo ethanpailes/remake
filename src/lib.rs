@@ -1,3 +1,113 @@
+/*!
+This crate provides a library for writing maintainable regular expressions.
+When regex are small, their terse syntax is nice because it allows you
+to say a lot with very little. In some cases regex outgrow the basic
+regex syntax. The [regex crate][regexcrate] provides an
+[extended mode][emode] which allows users to write regex containing
+insignificant whitespace and add comments to their regex. This crate
+takes that idea a step further by allowing you to factor your regex
+into different named pieces, then recombine the pieces later using
+familiar syntax.
+
+The actual rust API surface of this crate is intentionally small.
+Most of the functionality provided comes as part of the remake
+language.
+
+# Example: Regular Expression Literals
+
+Remake is all about manipulating regular expressions, so regex
+literals are one of the key features. In remake, we denote a
+regex literal by bracketing a regex in slashes. This is similar
+to the approach taken by languages like javascript.
+
+```rust
+# fn ex_main() -> Result<(), remake::Error> {
+use remake::Remake;
+let re = Remake::compile(r" /foo|bar/ ")?;
+assert!(re.is_match("foo"));
+# Ok(())
+# }
+```
+
+A common issue when writing a regex is not knowing if a particular
+sigil has special meaning in a regex. Even if you know that '+' is
+special, it can be easy to forget to escape it as, especially
+as your regex grows in complexity. To help with these situations,
+remake provides a second type of regex literals using single quotes.
+In a single-quote regex literal, there are no special characters.
+
+```rust
+# fn ex_main() -> Result<(), remake::Error> {
+use remake::Remake;
+let re = Remake::compile(r" 'foo|bar' ")?;
+assert!(!re.is_match("foo"));
+assert!(re.is_match("foo|bar"));
+# Ok(())
+# }
+```
+
+# Combining Regex
+
+The ability to pull regex apart into separate literals is not that
+useful without the ability to put them back together. Remake provides
+a number of operators for combining regex, corresponding very closely to
+ordinary regex operators.
+
+## Example: Composition
+
+We use the `.` char to indicate regex composition, also known as regex
+concatenation. There is no syntax for composition in ordinary regex, instead
+expressions written next to each other are simply composed automatically.
+In remake, we are more explicit.
+
+```rust
+# fn ex_main() -> Result<(), remake::Error> {
+use remake::Remake;
+let re = Remake::compile(r" 'f+oo' . /a*b/ ")?;
+assert!(re.is_match("f+oob"));
+assert!(re.is_match("f+ooaaaaaaaaaaaaaaab"));
+# Ok(())
+# }
+```
+
+## Example: Choice
+
+Just like in standard regex syntax, we use a pipe char to indicate
+choice between two different remake expressions.
+
+```rust
+# fn ex_main() -> Result<(), remake::Error> {
+use remake::Remake;
+let re = Remake::compile(r" 'foo' | 'bar' ")?;
+assert!(re.is_match("foo"));
+# Ok(())
+# }
+```
+
+## Example: Kleene Star
+
+Just like in standard regex syntax, we use a unary postfix `*` char to
+ask for zero or more repetitions of an expression.
+
+```rust
+# fn ex_main() -> Result<(), remake::Error> {
+use remake::Remake;
+let re = Remake::compile(r" 'a'* 'b' ")?;
+assert!(re.is_match("foo"));
+# Ok(())
+# }
+```
+
+
+TODO(ethan): show off error messages in the examples
+
+[emode]: https://github.com/rust-lang/regex#usage
+[regexcrate]: https://github.com/rust-lang/regex
+*/
+
+// TODO: add a usage section once this is on crates.io and I can actually
+//       explain how to pull it into a project.
+
 extern crate regex_syntax;
 extern crate regex;
 extern crate lalrpop_util;
@@ -38,6 +148,7 @@ use std::fmt;
 use regex::Regex;
 use error::InternalError;
 
+/// A remake expression, which can be compiled into a regex.
 pub struct Remake {
     /// The parsed remake expression.
     expr: ast::Expr,
@@ -48,9 +159,43 @@ pub struct Remake {
 }
 
 impl Remake {
-    /// Construct a Remake expression which can be evaluated
+    /// Evaluate some remake source to produce a regular expression.
+    ///
+    /// # Example: A mostly-wrong URI validator
+    /// ```rust
+    /// # use remake::Remake;
+    /// # fn ex_main() -> Result<(), remake::Error> {
+    /// let web_uri_re = Remake::compile(r#"
+    /// let scheme = /https?:/ . '//';
+    /// let domain = /[\w\.-_]/;
+    /// let query_body = (/[\w.-_?]/ | '/')*;
+    /// let frag_body = query;
+    /// scheme . domain . ('?' . query_body)? . ('#' . frag_body)?
+    /// "#)?;
+    /// assert!(web_uri_re.is_match("https://www.rust-lang.org"));
+    /// assert!(web_uri_re.is_match("https://github.com/ethanpailes/remake"));
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn compile(src: &str) -> Result<Regex, Error> {
+        Self::new(String::from(src))?.eval()
+    }
+
+    /// Construct a remake expression which can be evaluated
     /// at a later time.
-    pub fn new(src: String) -> Result<Self, Error> {
+    ///
+    /// To go directly from a remake expression to a `Regex`,
+    /// see `Remake::compile`.
+    ///
+    /// # Example:
+    /// ```rust
+    /// # use remake::Remake;
+    /// # fn ex_main() -> Result<(), remake::Error> {
+    /// let remake_expr = Remake::new(r" 'a literal' ".to_string())?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn new(src: String) -> Result<Remake, Error> {
         let mut remake = Remake {
             expr: ast::Expr::new(ast::ExprKind::ExprPoison,
                                  ast::Span { start: 0, end: 0 }),
@@ -91,19 +236,25 @@ impl Remake {
         Ok(remake)
     }
 
-    /// Evaluate a Remake expression.
+    /// Evaluate a remake expression.
+    ///
+    /// # Example:
+    /// ```rust
+    /// # use remake::Remake;
+    /// # fn ex_main() -> Result<(), remake::Error> {
+    /// let remake_expr = Remake::new(r" 'a [li[teral' ".to_string())?;
+    /// let re = remake_expr.eval()?;
+    ///
+    /// assert!(re.is_match("a [li[teral"));
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn eval(self) -> Result<Regex, Error> {
         match self.expr.eval() {
             Ok(ast) => Ok(Regex::new(&ast.to_string()).unwrap()),
             Err(err) => Err(Error::RuntimeError(
                             format!("{}", err.overlay(&self.src)))),
         }
-        // Ok(Regex::new(&format!("{}", self.expr.eval()?)).unwrap())
-    }
-
-    /// Evaluate some Remake source to produce a regular expression.
-    pub fn compile(src: &str) -> Result<Regex, Error> {
-        Self::new(String::from(src))?.eval()
     }
 }
 
@@ -151,6 +302,7 @@ impl fmt::Debug for Error {
 //              - Code coverage
 //              - Refactor tests
 //              - Refactor evaluation into its own module
+// TODO(ethan): Comment support.
 // TODO(ethan): Docs.
 //              - Rustdocs
 //              - README.md
@@ -572,4 +724,10 @@ Error parsing 11111111111111111111111111111111111111111111111111111111 as a numb
     mat!(alt_merge_1_, r"/a|b/ | /c/", "c");
     mat!(alt_merge_2_, r"/c/ | /a|b/", "c");
     mat!(alt_merge_3_, r"/c|d/ | /a|b/", "d");
+
+    mat!(block_1_, r#"
+        let gen_delims = ':' | '/' | '?' | '[' | ']' | '@';
+        'foo'
+    "#,
+    "foo");
 }
