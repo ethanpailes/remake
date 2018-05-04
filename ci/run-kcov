@@ -17,6 +17,9 @@ while true; do
   esac
 done
 
+# make sure the test executable really exists
+cargo test --verbose --no-run
+
 kcov \
     --verify \
     --include-pattern '/remake/src/' \

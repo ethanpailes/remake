@@ -568,4 +568,8 @@ NameError: unknown variable 'foo'.
 Error parsing 11111111111111111111111111111111111111111111111111111111 as a number. Literal too long.
 "#);
 
+
+    mat!(alt_merge_1_, r"/a|b/ | /c/", "c");
+    mat!(alt_merge_2_, r"/c/ | /a|b/", "c");
+    mat!(alt_merge_3_, r"/c|d/ | /a|b/", "d");
 }
