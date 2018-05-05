@@ -5,6 +5,7 @@ use regex_syntax::ast::{RepetitionKind, GroupKind};
 
 use error::{InternalError, ErrorKind};
 use operators;
+use operators::noncapturing_group;
 use util::POISON_SPAN;
 
 #[derive(Debug)]
@@ -55,7 +56,7 @@ impl Expr {
                                     kind: RepetitionKind::ZeroOrMore,
                                 },
                                 greedy: greedy,
-                                ast: e.eval_(env)?,
+                                ast: Box::new(noncapturing_group(e.eval_(env)?)),
                             })))
                     }
                     UOp::RepeatOneOrMore(greedy) => {
@@ -67,7 +68,7 @@ impl Expr {
                                     kind: RepetitionKind::OneOrMore,
                                 },
                                 greedy: greedy,
-                                ast: e.eval_(env)?,
+                                ast: Box::new(noncapturing_group(e.eval_(env)?)),
                             })))
                     }
                     UOp::RepeatZeroOrOne(greedy) => {
@@ -79,7 +80,7 @@ impl Expr {
                                     kind: RepetitionKind::ZeroOrOne,
                                 },
                                 greedy: greedy,
-                                ast: e.eval_(env)?,
+                                ast: Box::new(noncapturing_group(e.eval_(env)?)),
                             })))
                     }
                     UOp::RepeatRange(greedy, range) => {
@@ -91,11 +92,12 @@ impl Expr {
                                     kind: RepetitionKind::Range(range),
                                 },
                                 greedy: greedy,
-                                ast: e.eval_(env)?,
+                                ast: Box::new(noncapturing_group(e.eval_(env)?)),
                             })))
                     }
                 }
             }
+
             ExprKind::Capture(e, name) => {
                 Ok(Box::new(regex_syntax::ast::Ast::Group(
                     regex_syntax::ast::Group {

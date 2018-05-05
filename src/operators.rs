@@ -123,7 +123,7 @@ pub fn alt(lhs: Box<Ast>, rhs: Box<Ast>) -> Box<Ast> {
     }
 }
 
-fn noncapturing_group(ast: Box<Ast>) -> Ast {
+pub fn noncapturing_group(ast: Box<Ast>) -> Ast {
     Ast::Group(Group {
         span: POISON_SPAN,
         kind: GroupKind::NonCapturing(Flags {

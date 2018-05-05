@@ -1,8 +1,9 @@
 /*!
 This crate provides a library for writing maintainable regular expressions.
 When regex are small, their terse syntax is nice because it allows you
-to say a lot with very little. In some cases regex outgrow the basic
-regex syntax. The [regex crate][regexcrate] provides an
+to say a lot with very little. As regex grow in size, this terse syntax
+quickly becomes a liability, interfering with maintainability.
+The [regex crate][regexcrate] provides an
 [extended mode][emode] which allows users to write regex containing
 insignificant whitespace and add comments to their regex. This crate
 takes that idea a step further by allowing you to factor your regex
@@ -13,7 +14,34 @@ The actual rust API surface of this crate is intentionally small.
 Most of the functionality provided comes as part of the remake
 language.
 
-# Example: Regular Expression Literals
+# Example: A mostly-wrong URI validator
+```rust
+use remake::Remake;
+let web_uri_re = Remake::compile(r#"
+    let scheme = /https?:/ . '//';
+    let auth = /[\w\.\-_]+/;
+    let path = ('/' . /[\w\-_]+/)*;
+    let query_body = (/[\w\.\-_?]/ | '/')*;
+    let frag_body = cap query_body as frag;
+
+      /^/
+    . scheme . auth . path
+    . ('?' . query_body)?
+    . ('#' . frag_body)?
+    . /$/
+    "#).unwrap();
+
+assert!(web_uri_re.is_match("https://www.rust-lang.org"));
+assert!(web_uri_re.is_match("https://github.com/ethanpailes/remake"));
+
+assert_eq!(
+    web_uri_re
+        .captures("https://tools.ietf.org/html/rfc3986#section-1.1.3").unwrap()
+        .name("frag").unwrap().as_str(),
+        "section-1.1.3");
+```
+
+# Regular Expression Literals
 
 Remake is all about manipulating regular expressions, so regex
 literals are one of the key features. In remake, we denote a
@@ -21,29 +49,25 @@ regex literal by bracketing a regex in slashes. This is similar
 to the approach taken by languages like javascript.
 
 ```rust
-# fn ex_main() -> Result<(), remake::Error> {
 use remake::Remake;
-let re = Remake::compile(r" /foo|bar/ ")?;
+let re = Remake::compile(r" /foo|bar/ ").unwrap();
+
 assert!(re.is_match("foo"));
-# Ok(())
-# }
 ```
 
 A common issue when writing a regex is not knowing if a particular
 sigil has special meaning in a regex. Even if you know that '+' is
-special, it can be easy to forget to escape it as, especially
+special, it can be easy to forget to escape it, especially
 as your regex grows in complexity. To help with these situations,
-remake provides a second type of regex literals using single quotes.
+remake provides a second type of regex literal using single quotes.
 In a single-quote regex literal, there are no special characters.
 
 ```rust
-# fn ex_main() -> Result<(), remake::Error> {
 use remake::Remake;
-let re = Remake::compile(r" 'foo|bar' ")?;
+let re = Remake::compile(r" 'foo|bar' ").unwrap();
+
 assert!(!re.is_match("foo"));
 assert!(re.is_match("foo|bar"));
-# Ok(())
-# }
 ```
 
 # Combining Regex
@@ -53,57 +77,218 @@ useful without the ability to put them back together. Remake provides
 a number of operators for combining regex, corresponding very closely to
 ordinary regex operators.
 
-## Example: Composition
+## Composition
 
-We use the `.` char to indicate regex composition, also known as regex
+We use the `.` operator to indicate regex composition, also known as regex
 concatenation. There is no syntax for composition in ordinary regex, instead
 expressions written next to each other are simply composed automatically.
 In remake, we are more explicit.
 
 ```rust
-# fn ex_main() -> Result<(), remake::Error> {
 use remake::Remake;
-let re = Remake::compile(r" 'f+oo' . /a*b/ ")?;
+let re = Remake::compile(r" 'f+oo' . /a*b/ ").unwrap();
+
 assert!(re.is_match("f+oob"));
 assert!(re.is_match("f+ooaaaaaaaaaaaaaaab"));
-# Ok(())
-# }
 ```
 
-## Example: Choice
+## Choice
 
-Just like in standard regex syntax, we use a pipe char to indicate
+Just like in standard regex syntax, we use the pipe operator to indicate
 choice between two different remake expressions.
 
 ```rust
-# fn ex_main() -> Result<(), remake::Error> {
 use remake::Remake;
-let re = Remake::compile(r" 'foo' | 'bar' ")?;
+let re = Remake::compile(r" 'foo' | 'bar' ").unwrap();
+
 assert!(re.is_match("foo"));
-# Ok(())
-# }
 ```
 
-## Example: Kleene Star
+## Kleene Star
 
-Just like in standard regex syntax, we use a unary postfix `*` char to
+Just like in standard regex syntax, we use a unary postfix `*` operator to
 ask for zero or more repetitions of an expression.
 
 ```rust
-# fn ex_main() -> Result<(), remake::Error> {
 use remake::Remake;
-let re = Remake::compile(r" 'a'* 'b' ")?;
-assert!(re.is_match("foo"));
-# Ok(())
-# }
+let re = Remake::compile(r" 'a'* . 'b' ").unwrap();
+
+assert!(re.is_match("aaaaab"));
+assert!(re.is_match("b"));
 ```
 
+remake supports lazy Kleene star as well
 
-TODO(ethan): show off error messages in the examples
+```rust
+use remake::Remake;
+let re = Remake::compile(r" 'a'*? ").unwrap();
+
+assert_eq!(re.find("aaaaa").unwrap().as_str(), "");
+```
+
+## Kleene Plus
+
+As you might expect, remake also has syntax for repeating
+an expression one or more times.
+
+```rust
+use remake::Remake;
+let re = Remake::compile(r" 'a'+ . 'b' ").unwrap();
+assert!(re.is_match("aaaaab"));
+assert!(!re.is_match("b"));
+```
+
+and there is a lazy variant
+
+```rust
+use remake::Remake;
+let re = Remake::compile(r" 'a'+? ").unwrap();
+
+assert_eq!(re.find("aaaaa").unwrap().as_str(), "a");
+```
+
+## Counted Repetition
+
+[regex][regexcrate] supports a couple of different ways to
+ask for a counted repetition. Remake supports them all.
+
+```rust
+use remake::Remake;
+let re_a_1 = Remake::compile(r" 'a'{1} ").unwrap();
+let re_a_1ormore = Remake::compile(r" 'a'{1,} ").unwrap();
+let re_between_2_and_5 = Remake::compile(r" 'a'{2,5} ").unwrap();
+
+assert!(re_a_1.is_match("a"));
+assert!(re_a_1ormore.is_match("aaaaaa"));
+assert!(re_between_2_and_5.is_match("aaaaa"));
+
+let re_a_1_lazy = Remake::compile(r" 'a'{1}? ").unwrap();
+let re_a_1ormore_lazy = Remake::compile(r" 'a'{1,}? ").unwrap();
+let re_between_2_and_5_lazy = Remake::compile(r" 'a'{2,5}? ").unwrap();
+
+assert!(re_a_1_lazy.is_match("a"));
+assert!(re_a_1ormore_lazy.is_match("aaaaaa"));
+assert!(re_between_2_and_5_lazy.is_match("aaaaa"));
+```
+
+## Capture Groups
+
+Regex can be annotated with parentheses to ask the engine to
+take note of where particular sub-expressions occur in a match.
+You can access these sub-expressions by invoking the
+[`Regex::captures`](struct.Regex.html#method.captures)
+method. Remake already uses parentheses to control precedence, so
+it would be confusing to also use them as capturing syntax. Instead,
+we introduce the `cap` keyword. You can ask for an unnamed capture
+group by writing `cap <expr>`
+
+```rust
+use remake::Remake;
+let re = Remake::compile(r" 'a' . cap 'b' . 'c' ").unwrap();
+
+assert_eq!(&re.captures("abc").unwrap()[1], "b");
+```
+
+or give it a name with `cap <expr> as <name>`
+
+```rust
+use remake::Remake;
+let re = Remake::compile(r" 'a' . cap 'b' as group . 'c' ").unwrap();
+assert_eq!(re.captures("abc").unwrap().name("group").unwrap().as_str(), "b");
+```
+
+capture groups compose well with capture groups defined in a regex
+literal
+
+```rust
+use remake::Remake;
+let re = Remake::compile(r" /foo(bar)/ . cap 'baz' ").unwrap();
+
+let caps = re.captures("foobarbaz").unwrap();
+assert_eq!(&caps[1], "bar");
+assert_eq!(&caps[2], "baz");
+```
+
+Note that the index of unnamed capture groups depends on their
+order in the final expression that is generated, not where they
+are defined in a particular piece of remake source. The process of
+index assignment is not particularly implicit, so it is good practice
+to use named capture groups as regex grow large.
+
+# Block Expressions
+
+Just like rust, remake supports block expressions to introduce
+new scopes. A block starts with an open curly brace (`{`), contains
+zero or more statements followed by an expression, and ends with
+a closing curly brace (`}`).
+
+```rust
+use remake::Remake;
+let re = Remake::compile(r#"
+    {
+        let foo_re = 'foo';
+        foo_re | /bar/
+    }
+    "#).unwrap();
+
+assert!(re.is_match("bar"));
+```
+
+For convenience, the top level of a piece of remake source is
+automatically treated as the inside of a block.
+
+```rust
+use remake::Remake;
+let re = Remake::compile(r#"
+    let foo_re = 'foo';
+    foo_re | /bar/
+    "#).unwrap();
+
+assert!(re.is_match("bar"));
+```
+
+# Let Statements
+
+As shown above, the `let` keyword can be used to bind expressions
+to a name in the current scope. 
+
+# Error Messages
+
+Nice error messages are key to developer productivity, so remake
+endeavors to provide human friendly error messages. Remake error
+messages implement a `Debug` instance written with the expectation
+that the most common way to use remake is
+`Remake::compile(...).unwrap()`. This means that the error messages
+automatically show up with nice formatting in the middle of the
+output from `rustc`. Good error messages are important, so if you
+find one confusing and have an idea about how to improve it, please
+[share your idea](https://github.com/ethanpailes/remake/issues).
+
+## Example: A Bad Literal
+
+The code
+
+```rust,should_panic
+use remake::Remake;
+let _re = Remake::compile(r" /unclosed literal ").unwrap();
+```
+
+will fail with the error message
+
+```text
+thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value:
+remake parse error:
+    at line 1, col 2:
+    0001 >  /unclosed literal
+            ^
+Invalid token.
+```
 
 [emode]: https://github.com/rust-lang/regex#usage
 [regexcrate]: https://github.com/rust-lang/regex
 */
+
+// TODO(ethan): add comment support
 
 // TODO: add a usage section once this is on crates.io and I can actually
 //       explain how to pull it into a project.
@@ -145,8 +330,9 @@ mod util;
 //
 
 use std::fmt;
-use regex::Regex;
 use error::InternalError;
+
+pub use regex::Regex;
 
 /// A remake expression, which can be compiled into a regex.
 pub struct Remake {
@@ -163,20 +349,35 @@ impl Remake {
     ///
     /// # Example: A mostly-wrong URI validator
     /// ```rust
-    /// # use remake::Remake;
-    /// # fn ex_main() -> Result<(), remake::Error> {
+    /// use remake::Remake;
     /// let web_uri_re = Remake::compile(r#"
-    /// let scheme = /https?:/ . '//';
-    /// let domain = /[\w\.-_]/;
-    /// let query_body = (/[\w.-_?]/ | '/')*;
-    /// let frag_body = query;
-    /// scheme . domain . ('?' . query_body)? . ('#' . frag_body)?
-    /// "#)?;
+    ///     let scheme = /https?:/ . '//';
+    ///     let auth = /[\w\.\-_]+/;
+    ///     let path = ('/' . /[\w\-_]+/)*;
+    ///     let query_body = (/[\w\.\-_?]/ | '/')*;
+    ///     let frag_body = cap query_body as frag;
+    ///
+    ///       /^/
+    ///     . scheme . auth . path
+    ///     . ('?' . query_body)?
+    ///     . ('#' . frag_body)?
+    ///     . /$/
+    ///     "#).unwrap();
+    ///
     /// assert!(web_uri_re.is_match("https://www.rust-lang.org"));
     /// assert!(web_uri_re.is_match("https://github.com/ethanpailes/remake"));
-    /// # Ok(())
-    /// # }
+    ///
+    /// assert_eq!(
+    ///     web_uri_re
+    ///         .captures("https://tools.ietf.org/html/rfc3986#section-1.1.3").unwrap()
+    ///         .name("frag").unwrap().as_str(),
+    ///         "section-1.1.3");
     /// ```
+    ///
+    /// # Errors:
+    ///
+    /// Calling `compile` on some remake source might result in an
+    /// [`Error`](enum.Error.html).
     pub fn compile(src: &str) -> Result<Regex, Error> {
         Self::new(String::from(src))?.eval()
     }
@@ -194,7 +395,13 @@ impl Remake {
     /// let remake_expr = Remake::new(r" 'a literal' ".to_string())?;
     /// # Ok(())
     /// # }
+    /// # fn main() { ex_main().unwrap() }
     /// ```
+    ///
+    /// # Errors:
+    ///
+    /// Calling `new` on some remake source might result in a
+    /// [`Error::ParseError`](enum.Error.html).
     pub fn new(src: String) -> Result<Remake, Error> {
         let mut remake = Remake {
             expr: ast::Expr::new(ast::ExprKind::ExprPoison,
@@ -248,7 +455,13 @@ impl Remake {
     /// assert!(re.is_match("a [li[teral"));
     /// # Ok(())
     /// # }
+    /// # fn main() { ex_main().unwrap() }
     /// ```
+    ///
+    /// # Errors:
+    ///
+    /// Calling `eval` on a remake expression might result in a
+    /// [`Error::RuntimeError`](enum.Error.html).
     pub fn eval(self) -> Result<Regex, Error> {
         match self.expr.eval() {
             Ok(ast) => Ok(Regex::new(&ast.to_string()).unwrap()),
@@ -258,6 +471,8 @@ impl Remake {
     }
 }
 
+/// A remake error with a descriptive human-readable message explaining
+/// what went wrong.
 #[derive(Clone)]
 pub enum Error {
     /// A parse error occurred.
@@ -730,4 +945,22 @@ Error parsing 11111111111111111111111111111111111111111111111111111111 as a numb
         'foo'
     "#,
     "foo");
+
+    mat!(repeated_concat_1_, r"/^/ . ('/' . /[\w\-_]+/)* . /$/", "");
+    mat!(repeated_concat_2_, r"/^/ . ('/' . /[\w\-_]+/)* . /$/", "/a/b/c");
+
+    mat!(repeated_concat_3_, r"/^/ . ('/' . /[\w\-_]+?/)* . /$/", "");
+    mat!(repeated_concat_4_, r"/^/ . ('/' . /[\w\-_]+?/)* . /$/", "/a/b/c");
+
+    mat!(repeated_concat_5_, r"/^/ . ('/' . /[\w\-_]+/)+ . /$/", "/a/b/c");
+    mat!(repeated_concat_6_, r"/^/ . ('/' . /[\w\-_]+/)+? . /$/", "/a/b/c");
+
+    mat!(repeated_concat_7_, r"/^/ . ('/' . /[\w\-_]+/){3} . /$/", "/a/b/c");
+    mat!(repeated_concat_8_, r"/^/ . ('/' . /[\w\-_]+/){3}? . /$/", "/a/b/c");
+
+    mat!(repeated_concat_9_, r"/^/ . ('/' . /[\w\-_]+/){1,} . /$/", "/a/b/c");
+    mat!(repeated_concat_10_, r"/^/ . ('/' . /[\w\-_]+/){1,}? . /$/", "/a/b/c");
+
+    mat!(repeated_concat_11_, r"/^/ . ('/' . /[\w\-_]+/){1,5} . /$/", "/a/b/c");
+    mat!(repeated_concat_12_, r"/^/ . ('/' . /[\w\-_]+/){1,5}? . /$/", "/a/b/c");
 }
