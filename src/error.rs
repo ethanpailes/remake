@@ -1,5 +1,7 @@
 use std::fmt;
+
 use ast::Span;
+use lex;
 
 /// A structured remake error. Can be a parse error OR a runtime error.
 ///
@@ -65,8 +67,12 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
 
         match &self.err.kind {
             &RegexError { ref re, ref err } => {
-                writeln!(f, "Error parsing the regex literal: {}", re)?;
+                writeln!(f, "Error parsing the regex literal: /{}/", re)?;
                 write!(f, "{}", block_leftpad(err, 4))?;
+            }
+            &LexicalError(ref kind) => { 
+                writeln!(f, "remake lexical error:")?;
+                write!(f, "{}", kind)?;
             }
             &InvalidToken => {
                 writeln!(f, "Invalid token.")?;
@@ -84,10 +90,6 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
             &NameError { ref name } => {
                 writeln!(f, "NameError: unknown variable '{}'.", name)?;
             }
-            &NumParseError { ref num_str } => {
-                writeln!(f, "Error parsing {} as a number. Literal too long.",
-                            num_str)?;
-            }
         }
 
         Ok(())
@@ -96,6 +98,13 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
 
 #[derive(Debug)]
 pub enum ErrorKind {
+    //
+    // Custom lexical error
+    //
+    LexicalError(lex::LexicalErrorKind),
+
+    // repackaged parse errors so that we can highlight them
+    // in the source nicely.
     InvalidToken,
     UnrecognizedToken {
         token: String,
@@ -105,12 +114,13 @@ pub enum ErrorKind {
         re: String,
         err: String,
     },
+
+    //
+    // runtime errors
+    //
     NameError {
         name: String,
     },
-    NumParseError {
-        num_str: String,
-    }
 }
 
 #[derive(Debug)]
@@ -182,7 +192,6 @@ impl PosSpan {
         if self.start_line != self.end_line {
             self.highlight_multiline(src)
         } else {
-
             let mut s = format!("at line {}, col {}:\n",
                 self.start_line, self.start_col);
 

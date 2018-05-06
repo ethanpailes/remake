@@ -288,17 +288,16 @@ Invalid token.
 [regexcrate]: https://github.com/rust-lang/regex
 */
 
-// TODO(ethan): add comment support
-
 // TODO: add a usage section once this is on crates.io and I can actually
 //       explain how to pull it into a project.
 
 extern crate regex_syntax;
-extern crate regex;
+pub extern crate regex;
 extern crate lalrpop_util;
 extern crate failure;
 
 mod ast;
+mod lex;
 mod parse;
 mod error;
 mod operators;
@@ -332,9 +331,8 @@ mod util;
 use std::fmt;
 use error::InternalError;
 
-pub use regex::Regex;
-
 /// A remake expression, which can be compiled into a regex.
+#[derive(Clone)]
 pub struct Remake {
     /// The parsed remake expression.
     expr: ast::Expr,
@@ -378,7 +376,7 @@ impl Remake {
     ///
     /// Calling `compile` on some remake source might result in an
     /// [`Error`](enum.Error.html).
-    pub fn compile(src: &str) -> Result<Regex, Error> {
+    pub fn compile(src: &str) -> Result<regex::Regex, Error> {
         Self::new(String::from(src))?.eval()
     }
 
@@ -409,36 +407,40 @@ impl Remake {
             src: src,
         };
 
-        remake.expr = match parse::BlockBodyParser::new().parse(&remake.src) {
-            Ok(expr) => expr,
-            Err(err) => {
-                return Err(Error::ParseError(match err {
-                    lalrpop_util::ParseError::User { error } =>
-                        format!("{}", error.overlay(&remake.src)),
+        {
+            let parser = parse::BlockBodyParser::new();
+            let lexer = lex::Lexer::new(&remake.src);
+            remake.expr = match parser.parse(lexer) {
+                Ok(expr) => expr,
+                Err(err) => {
+                    return Err(Error::ParseError(match err {
+                        lalrpop_util::ParseError::User { error } =>
+                            format!("{}", error.overlay(&remake.src)),
 
-                    lalrpop_util::ParseError::InvalidToken { location } =>
-                        format!("{}",
+                        lalrpop_util::ParseError::InvalidToken { location } =>
+                            format!("{}",
+                                InternalError::new(
+                                    error::ErrorKind::InvalidToken,
+                                    ast::Span { start: location, end: location + 1 }
+                                    ).overlay(&remake.src)),
+
+                        lalrpop_util::ParseError::UnrecognizedToken {
+                            token: Some((l, tok, r)), expected
+                        } => format!(
+                            "{}",
                             InternalError::new(
-                                error::ErrorKind::InvalidToken,
-                                ast::Span { start: location, end: location + 1 }
+                                error::ErrorKind::UnrecognizedToken {
+                                    token: tok.to_string(),
+                                    expected: expected,
+                                },
+                                ast::Span { start: l, end: r }
                                 ).overlay(&remake.src)),
 
-                    lalrpop_util::ParseError::UnrecognizedToken {
-                        token: Some((l, tok, r)), expected
-                    } => format!(
-                        "{}",
-                        InternalError::new(
-                            error::ErrorKind::UnrecognizedToken {
-                                token: tok.to_string(),
-                                expected: expected,
-                            },
-                            ast::Span { start: l, end: r }
-                            ).overlay(&remake.src)),
-
-                    err => format!("{}", err),
-                }));
-            }
-        };
+                        err => format!("{}", err),
+                    }));
+                }
+            };
+        }
 
         Ok(remake)
     }
@@ -462,9 +464,9 @@ impl Remake {
     ///
     /// Calling `eval` on a remake expression might result in a
     /// [`Error::RuntimeError`](enum.Error.html).
-    pub fn eval(self) -> Result<Regex, Error> {
+    pub fn eval(self) -> Result<regex::Regex, Error> {
         match self.expr.eval() {
-            Ok(ast) => Ok(Regex::new(&ast.to_string()).unwrap()),
+            Ok(ast) => Ok(regex::Regex::new(&ast.to_string()).unwrap()),
             Err(err) => Err(Error::RuntimeError(
                             format!("{}", err.overlay(&self.src)))),
         }
@@ -630,9 +632,8 @@ mod tests {
         ($test_name:ident, $remake_src:expr, $expected_err_str:expr) => {
             #[test]
             fn $test_name() {
-                let result = Remake::compile($remake_src);
+                let result = Remake::new($remake_src.to_string());
                 match &result {
-                    &Ok(_) => panic!("Should not eval to anything."),
                     &Err(Error::ParseError(ref reason)) => {
                         let reason = &reason[0..$expected_err_str.len()];
                         // When copying the right output into the test
@@ -647,7 +648,10 @@ mod tests {
                             result.clone().unwrap();
                         }
                     }
-                    _ => panic!("Should not parse."),
+                    &Ok(ref ast) =>
+                        panic!("Should not parse. ast={:?}", ast.expr),
+                    &Err(ref err) =>
+                        panic!("Non parse err: {:?}", err),
                 }
             }
         }
@@ -697,41 +701,44 @@ mod tests {
     parse_error_pre!(unmatched_tick_1_, r"'a",
         r#"    at line 1, col 1:
     0001 > 'a
-           ^
-Invalid token."#);
+           ^^
+remake lexical error:
+Unclosed raw regex literal."#);
 
     parse_error_pre!(unmatched_tick_2_, r"a'",
         r#"    at line 1, col 2:
     0001 > a'
             ^
-Invalid token."#);
+remake lexical error:
+Unclosed raw regex literal."#);
 
-    parse_error!(unmatched_slash_1_, r"/a",
+    parse_error_pre!(unmatched_slash_1_, r"/a",
         r#"    at line 1, col 1:
     0001 > /a
-           ^
-Invalid token.
-"#);
+           ^^
+remake lexical error:
+Unclosed regex literal."#);
 
     parse_error_pre!(unmatched_slash_2_, r"a/",
         r#"    at line 1, col 2:
     0001 > a/
             ^
-Invalid token."#);
+remake lexical error:
+Unclosed regex literal."#);
 
-    parse_error!(unmatched_tick_slash_1_, r"'a/",
+    parse_error_pre!(unmatched_tick_slash_1_, r"'a/",
         r#"    at line 1, col 1:
     0001 > 'a/
-           ^
-Invalid token.
-"#);
+           ^^^
+remake lexical error:
+Unclosed raw regex literal."#);
 
-    parse_error!(unmatched_tick_slash_2_, r"/a'",
+    parse_error_pre!(unmatched_tick_slash_2_, r"/a'",
         r#"    at line 1, col 1:
     0001 > /a'
-           ^
-Invalid token.
-"#);
+           ^^^
+remake lexical error:
+Unclosed regex literal."#);
 
     //
     // parse errors that bubble up from the regex crate
@@ -759,7 +766,7 @@ Error parsing the regex literal: /a[]/
     error: unclosed character class
 "#);
 
-    parse_error!(re_multiline_parse_err_1_,
+    parse_error_pre!(re_multiline_parse_err_1_,
         r#"
 
             /a[/
@@ -774,8 +781,7 @@ Error parsing the regex literal: /a[/
     regex parse error:
         a[
          ^
-    error: unclosed character class
-"#);
+    error: unclosed character class"#);
 
     parse_error_pre!(unrecognized_token_1_, r"/foo/ /foo/",
         r#"    at line 1, col 7:
@@ -927,13 +933,13 @@ Unexpected token"#);
 NameError: unknown variable 'foo'.
 "#);
 
-    parse_error!(num_too_long_1_,
+    parse_error_pre!(num_too_long_1_,
         r"'a'{11111111111111111111111111111111111111111111111111111111}",
         r#"    at line 1, col 5:
     0001 > 'a'{11111111111111111111111111111111111111111111111111111111}
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error parsing 11111111111111111111111111111111111111111111111111111111 as a number. Literal too long.
-"#);
+remake lexical error:
+Error parsing '11111111111111111111111111111111111111111111111111111111' as a number:"#);
 
 
     mat!(alt_merge_1_, r"/a|b/ | /c/", "c");

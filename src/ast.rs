@@ -8,7 +8,7 @@ use operators;
 use operators::noncapturing_group;
 use util::POISON_SPAN;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Expr {
     pub kind: ExprKind,
     pub span: Span,
@@ -181,7 +181,7 @@ impl EvalEnv {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ExprKind {
     BinOp(Box<Expr>, BOp, Box<Expr>),
     UnaryOp(UOp, Box<Expr>),
@@ -196,13 +196,13 @@ pub enum ExprKind {
     ExprPoison,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BOp {
     Concat,
     Alt,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum UOp {
     RepeatZeroOrMore(bool),
     RepeatOneOrMore(bool),
@@ -210,7 +210,7 @@ pub enum UOp {
     RepeatRange(bool, regex_syntax::ast::RepetitionRange),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Statement {
     kind: StatementKind,
     span: Span,
@@ -235,12 +235,12 @@ impl Statement {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum StatementKind {
     LetBinding(String, Box<Expr>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Span {
     pub start: usize,
     pub end: usize,

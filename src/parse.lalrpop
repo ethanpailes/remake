@@ -1,19 +1,48 @@
-use std::str::FromStr;
 use regex_syntax;
 use regex_syntax::ast::RepetitionRange;
 use lalrpop_util::ParseError;
 use ast::{Expr, ExprKind, Span, BOp, UOp, StatementKind, Statement};
 use error;
 use error::{InternalError, ErrorKind};
+use lex;
 
-// TODO(ethan): add support for escaping the terminating chars in
-//              a regex literal. Don't add it for single quote
-//              regex literals.
-
-grammar;
+grammar<'input>;
 
 extern {
+    type Location = usize;
     type Error = error::InternalError;
+
+    enum lex::Token<'input> {
+        "regex literal" => lex::Token::RegexLit(<String>),
+        "raw regex literal" => lex::Token::RawRegexLit(<&'input str>),
+        "u32" => lex::Token::U32(<u32>),
+        "identifier" => lex::Token::Id(<&'input str>),
+
+        "(" => lex::Token::OpenParen,
+        ")" => lex::Token::CloseParen,
+        
+        "{" => lex::Token::OpenCurly,
+        "}" => lex::Token::CloseCurly,
+        "}?" => lex::Token::LazyCloseCurly,
+
+        "*" => lex::Token::Star,
+        "*?" => lex::Token::LazyStar,
+
+        "+" => lex::Token::Plus,
+        "+?" => lex::Token::LazyPlus,
+
+        "," => lex::Token::Comma,
+        ";" => lex::Token::Semi,
+        "|" => lex::Token::Pipe,
+        "." => lex::Token::Dot,
+        "=" => lex::Token::Equals,
+        "?" => lex::Token::Question,
+        "??" => lex::Token::LazyQuestion,
+
+        "as" => lex::Token::As,
+        "cap" => lex::Token::Cap,
+        "let" => lex::Token::Let,
+    }
 }
 
 pub BlockBody: Expr = {
@@ -113,26 +142,19 @@ ExprKind4: ExprKind = {
 };
 
 Int32: u32 = {
-    <l: @L> <n:r"[0-9]+"> <r: @R> =>?
-        u32::from_str(n)
-            .map_err(|e| ParseError::User {
-                            error: InternalError::new(
-                                ErrorKind::NumParseError {
-                                    num_str: n.to_string()
-                                },
-                                Span { start: l, end: r })
-                         })
+    <n:"u32"> => n
 };
 
 Id: String = {
-    r"[a-zA-Z][a-zA-Z0-9_]*" => String::from(<>)
+    "identifier" => String::from(<>)
 };
 
 RegexLiteral: Box<regex_syntax::ast::Ast> = {
-    // raw literals
-    <l: @L> <s:r"'[^']+'"> <r: @R> =>? {
+
+    // raw regex literals
+    <l: @L> <s:"raw regex literal"> <r: @R> =>? {
         use regex_syntax::ast::parse::Parser;
-        match Parser::new().parse(&regex_syntax::escape(&s[1..(s.len() - 1)])) {
+        match Parser::new().parse(&regex_syntax::escape(s)) {
             Ok(re) => Ok(Box::new(re)),
             Err(err) => Err(ParseError::User {
                 error: InternalError::new(
@@ -146,14 +168,14 @@ RegexLiteral: Box<regex_syntax::ast::Ast> = {
     },
 
     // regex literals
-    <l: @L> <s:r"/[^/]+/"> <r: @R> =>? {
+    <l: @L> <s:"regex literal"> <r: @R> =>? {
         use regex_syntax::ast::parse::Parser;
-        match Parser::new().parse(&s[1..(s.len() - 1)]) {
+        match Parser::new().parse(&s) {
             Ok(re) => Ok(Box::new(re)),
             Err(err) => Err(ParseError::User {
                 error: InternalError::new(
                     ErrorKind::RegexError {
-                        re: String::from(s),
+                        re: s,
                         err: format!("{}", err),
                     },
                     Span { start: l, end: r }),
