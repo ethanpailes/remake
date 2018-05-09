@@ -620,83 +620,28 @@ mod tests {
         }
     }
 
-    macro_rules! parse_error {
+    macro_rules! error_pre {
         ($test_name:ident, $remake_src:expr, $expected_err_str:expr) => {
             #[test]
             fn $test_name() {
                 let result = Remake::compile($remake_src);
                 match &result {
-                    &Ok(_) => panic!("Should not eval to anything."),
-                    &Err(Error::ParseError(ref reason)) => {
+                    &Err(ref err) => {
+                        let err_msg = format!("{}", err);
                         // When copying the right output into the test
                         // case uncommenting this can help debug.
                         //
-                        // assert_eq!($expected_err_str, reason);
+                        // assert_eq!($expected_err_str, err_msg);
                         
-                        if $expected_err_str != reason {
+                        if !err_msg.starts_with($expected_err_str) {
                             // We unwrap rather than asserting or something
                             // a little more reasonable so that we can see
                             // the error output as the user sees it.
                             result.clone().unwrap();
                         }
                     }
-                    _ => panic!("Should not parse."),
-                }
-            }
-        }
-    }
-
-    macro_rules! parse_error_pre {
-        ($test_name:ident, $remake_src:expr, $expected_err_str:expr) => {
-            #[test]
-            fn $test_name() {
-                let result = Remake::new($remake_src.to_string());
-                match &result {
-                    &Err(Error::ParseError(ref reason)) => {
-                        let reason = &reason[0..$expected_err_str.len()];
-                        // When copying the right output into the test
-                        // case uncommenting this can help debug.
-                        //
-                        // assert_eq!($expected_err_str, reason);
-                        
-                        if $expected_err_str != reason {
-                            // We unwrap rather than asserting or something
-                            // a little more reasonable so that we can see
-                            // the error output as the user sees it.
-                            result.clone().unwrap();
-                        }
-                    }
-                    &Ok(ref ast) =>
-                        panic!("Should not parse. ast={:?}", ast.expr),
-                    &Err(ref err) =>
-                        panic!("Non parse err: {:?}", err),
-                }
-            }
-        }
-    }
-
-    macro_rules! runtime_error_pre {
-        ($test_name:ident, $remake_src:expr, $expected_err_str:expr) => {
-            #[test]
-            fn $test_name() {
-                let result = Remake::compile($remake_src);
-                match &result {
-                    &Ok(_) => panic!("Should not eval to anything."),
-                    &Err(Error::ParseError(_)) => panic!("Should parse."),
-                    &Err(Error::RuntimeError(ref reason)) => {
-                        let reason = &reason[0..$expected_err_str.len()];
-                        // When copying the right output into the test
-                        // case uncommenting this can help debug.
-                        //
-                        // assert_eq!($expected_err_str, reason);
-
-                        if $expected_err_str != reason {
-                            // We unwrap rather than asserting or something
-                            // a little more reasonable so that we can see
-                            // the error output as the user sees it.
-                            result.clone().unwrap();
-                        }
-                    }
+                    &Ok(ref res) =>
+                        panic!("Should not eval. res={:?}", res),
                 }
             }
         }
@@ -716,43 +661,55 @@ mod tests {
     // remake parse errors
     //
     
-    parse_error_pre!(unmatched_tick_1_, r"'a",
-        r#"    at line 1, col 1:
+    error_pre!(unmatched_tick_1_, r"'a",
+        r#"
+remake parse error:
+    at line 1, col 1:
     0001 > 'a
            ^^
 remake lexical error:
 Unclosed raw regex literal."#);
 
-    parse_error_pre!(unmatched_tick_2_, r"a'",
-        r#"    at line 1, col 2:
+    error_pre!(unmatched_tick_2_, r"a'",
+        r#"
+remake parse error:
+    at line 1, col 2:
     0001 > a'
             ^
 remake lexical error:
 Unclosed raw regex literal."#);
 
-    parse_error_pre!(unmatched_slash_1_, r"/a",
-        r#"    at line 1, col 1:
+    error_pre!(unmatched_slash_1_, r"/a",
+        r#"
+remake parse error:
+    at line 1, col 1:
     0001 > /a
            ^^
 remake lexical error:
 Unclosed regex literal."#);
 
-    parse_error_pre!(unmatched_slash_2_, r"a/",
-        r#"    at line 1, col 2:
+    error_pre!(unmatched_slash_2_, r"a/",
+        r#"
+remake parse error:
+    at line 1, col 2:
     0001 > a/
             ^
 remake lexical error:
 Unclosed regex literal."#);
 
-    parse_error_pre!(unmatched_tick_slash_1_, r"'a/",
-        r#"    at line 1, col 1:
+    error_pre!(unmatched_tick_slash_1_, r"'a/",
+        r#"
+remake parse error:
+    at line 1, col 1:
     0001 > 'a/
            ^^^
 remake lexical error:
 Unclosed raw regex literal."#);
 
-    parse_error_pre!(unmatched_tick_slash_2_, r"/a'",
-        r#"    at line 1, col 1:
+    error_pre!(unmatched_tick_slash_2_, r"/a'",
+        r#"
+remake parse error:
+    at line 1, col 1:
     0001 > /a'
            ^^^
 remake lexical error:
@@ -762,35 +719,39 @@ Unclosed regex literal."#);
     // parse errors that bubble up from the regex crate
     //
     
-    parse_error!(re_parse_err_1_, r"/a[/", 
-        r#"    at line 1, col 1:
+    error_pre!(re_parse_err_1_, r"/a[/", 
+        r#"
+remake parse error:
+    at line 1, col 1:
     0001 > /a[/
            ^^^^
 Error parsing the regex literal: /a[/
     regex parse error:
         a[
          ^
-    error: unclosed character class
-"#);
+    error: unclosed character class"#);
 
-    parse_error!(re_parse_err_2_, r"/a[]/",
-        r#"    at line 1, col 1:
+    error_pre!(re_parse_err_2_, r"/a[]/",
+        r#"
+remake parse error:
+    at line 1, col 1:
     0001 > /a[]/
            ^^^^^
 Error parsing the regex literal: /a[]/
     regex parse error:
         a[]
          ^^
-    error: unclosed character class
-"#);
+    error: unclosed character class"#);
 
-    parse_error_pre!(re_multiline_parse_err_1_,
+    error_pre!(re_multiline_parse_err_1_,
         r#"
 
             /a[/
 
         "#,
-        r#"    at line 3, col 13:
+        r#"
+remake parse error:
+    at line 3, col 13:
     0002 > 
     0003 >             /a[/
                        ^^^^
@@ -801,21 +762,27 @@ Error parsing the regex literal: /a[/
          ^
     error: unclosed character class"#);
 
-    parse_error_pre!(unrecognized_token_1_, r"/foo/ /foo/",
-        r#"    at line 1, col 7:
+    error_pre!(unrecognized_token_1_, r"/foo/ /foo/",
+        r#"
+remake parse error:
+    at line 1, col 7:
     0001 > /foo/ /foo/
                  ^^^^^
 Unexpected token '/foo/'. Expected one of:"#);
 
-    parse_error_pre!(binary_plus_1_, r"/foo/ + /bar/",
-        r#"    at line 1, col 9:
+    error_pre!(binary_plus_1_, r"/foo/ + /bar/",
+        r#"
+remake parse error:
+    at line 1, col 9:
     0001 > /foo/ + /bar/
                    ^^^^^
 Unexpected token '/bar/'. Expected one of:"#);
 
-    parse_error_pre!(binary_plus_multiline_1_, r#"/foo/ +
+    error_pre!(binary_plus_multiline_1_, r#"/foo/ +
         /bar
-        /"#, r#"    starting at line 2, col 9 and ending at line 3, col 10:
+        /"#, r#"
+remake parse error:
+    starting at line 2, col 9 and ending at line 3, col 10:
     0001  > /foo/ +
     0002  >         /bar
     start >         ^
@@ -824,14 +791,16 @@ Unexpected token '/bar/'. Expected one of:"#);
 Unexpected token '/bar
         /'. Expected one of:"#);
 
-    parse_error_pre!(binary_plus_multiline_2_, r#"
+    error_pre!(binary_plus_multiline_2_, r#"
         /foo/ + /
         
         bar
 
 
 
-        /"#, r#"    starting at line 2, col 17 and ending at line 8, col 10:
+        /"#, r#"
+remake parse error:
+    starting at line 2, col 17 and ending at line 8, col 10:
     0001  > 
     0002  >         /foo/ + /
     start >                 ^
@@ -941,19 +910,22 @@ Unexpected token"#);
     "#, "abar");
 
 
-    runtime_error_pre!(name_error_1_, r#"
+    error_pre!(name_error_1_, r#"
         foo
-    "#, r#"    at line 2, col 9:
+    "#, r#"
+remake evaluation error:
+    at line 2, col 9:
     0001 > 
     0002 >         foo
                    ^^^
     0003 >     
-NameError: unknown variable 'foo'.
-"#);
+NameError: unknown variable 'foo'."#);
 
-    parse_error_pre!(num_too_long_1_,
+    error_pre!(num_too_long_1_,
         r"'a'{11111111111111111111111111111111111111111111111111111111}",
-        r#"    at line 1, col 5:
+        r#"
+remake parse error:
+    at line 1, col 5:
     0001 > 'a'{11111111111111111111111111111111111111111111111111111111}
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 remake lexical error:

@@ -11,7 +11,7 @@ use error::InternalError;
 
 pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Token<'input> {
     RegexLit(String),
     RawRegexLit(&'input str),
@@ -48,7 +48,7 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::RegexLit(ref re_src) => write!(f, "/{}/", re_src),
             &Token::RawRegexLit(ref re_src) => write!(f, "'{}'", re_src),
             &Token::U32(ref num) => write!(f, "{}", num),
-            &Token::Id(ref id) => write!(f, "identifier {}", id),
+            &Token::Id(ref id) => write!(f, "identifier: {}", id),
 
             // Operators
             &Token::OpenParen => write!(f, "("),
@@ -497,6 +497,28 @@ mod tests {
         }
     }
 
+    macro_rules! lex_error_has {
+        ($fn_name:ident, $remake_source:expr, $lex_err:expr) => {
+            #[test]
+            fn $fn_name() {
+                let tokens = Lexer::new($remake_source)
+                    .map(|tok| tok.map(|(_, t, _)| t))
+                    .collect::<Result<Vec<_>, _>>();
+
+                match tokens {
+                    Err(ref err) => {
+                        let err_str =
+                            format!("{}", err.overlay($remake_source));
+                        // assert_eq!($lex_err, err_str);
+
+                        assert!(err_str.contains($lex_err));
+                    }
+                    Ok(_) => panic!("Should not lex."),
+                }
+            }
+        }
+    }
+
     macro_rules! spanned {
         ($fn_name:ident, $remake_source:expr, $span_spec:expr) => {
             #[test]
@@ -528,6 +550,27 @@ mod tests {
                 assert_eq!(s_spec, spans);
             }
         }
+    }
+
+    macro_rules! tok_round_trip {
+        ($fn_name:ident, $remake_source:expr) => {
+            #[test]
+            fn $fn_name() {
+                let tok = Lexer::new($remake_source)
+                            .collect::<Result<Vec<_>, _>>()
+                            .unwrap()[0].1.clone();
+                assert_eq!($remake_source, &format!("{}", tok));
+            }
+        };
+        ($fn_name:ident, $remake_source:expr, $expected:expr) => {
+            #[test]
+            fn $fn_name() {
+                let tok = Lexer::new($remake_source)
+                            .collect::<Result<Vec<_>, _>>()
+                            .unwrap()[0].1.clone();
+                assert_eq!($expected, &format!("{}", tok));
+            }
+        };
     }
 
     //
@@ -701,5 +744,48 @@ mod tests {
     spanned!(span_comment_3_,
         " ( blah . ) { 56 , // 32, */ 9 } ",
         " ~ ~~~~ ~ ~ ~ ~~ ~               ");
+
+    //
+    // Ensure that non-parameterized tokens are represented
+    // the same way they look.
+    //
+
+    tok_round_trip!(trt_1_, "{");
+    tok_round_trip!(trt_2_, "}");
+    tok_round_trip!(trt_3_, "}?");
+    tok_round_trip!(trt_4_, "=");
+    tok_round_trip!(trt_5_, "(");
+    tok_round_trip!(trt_6_, ")");
+    tok_round_trip!(trt_7_, "foo", "identifier: foo");
+    tok_round_trip!(trt_8_, "cap");
+    tok_round_trip!(trt_9_, "as");
+    tok_round_trip!(trt_10_, "let");
+    tok_round_trip!(trt_11_, ".");
+    tok_round_trip!(trt_12_, ",");
+    tok_round_trip!(trt_13_, "9");
+    tok_round_trip!(trt_14_, "+");
+    tok_round_trip!(trt_15_, "+?");
+    tok_round_trip!(trt_16_, "?");
+    tok_round_trip!(trt_17_, "??");
+    tok_round_trip!(trt_18_, "*");
+    tok_round_trip!(trt_19_, "*?");
+    tok_round_trip!(trt_20_, "|");
+    tok_round_trip!(trt_21_, ";");
+
+    //
+    // Specific lexical errors
+    //
+
+
+    lex_error_has!(reserved_1_, "&&", "Reserved operator");
+    lex_error_has!(reserved_2_, "==", "Reserved operator");
+    lex_error_has!(reserved_3_, "||", "Reserved operator");
+    lex_error_has!(reserved_4_, "&&", "Reserved operator");
+    lex_error_has!(reserved_5_, "=>", "Reserved operator");
+    lex_error_has!(reserved_6_, "<", "Reserved operator");
+    lex_error_has!(reserved_7_, ">", "Reserved operator");
+    lex_error_has!(reserved_8_, ">=", "Reserved operator");
+    lex_error_has!(reserved_9_, "<=", "Reserved operator");
+    lex_error_has!(reserved_10_, "!=", "Reserved operator");
 
 }

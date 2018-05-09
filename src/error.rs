@@ -44,7 +44,7 @@ impl InternalError {
 impl fmt::Display for InternalError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f,
-            r#"Bug in remake. Parse errors should never be directly formatted.
+            r#"Bug in remake. Internal errors should never be directly formatted.
                Please report this to https://github.com/ethanpailes/remake.
             "#)?;
         Ok(())
