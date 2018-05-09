@@ -55,6 +55,16 @@ let re = Remake::compile(r" /foo|bar/ ").unwrap();
 assert!(re.is_match("foo"));
 ```
 
+If you want to include a forward slash in a regex literal, you will
+have to escape it with a backslash.
+
+```rust
+use remake::Remake;
+let re = Remake::compile(r" /a regex with a \/ slash/ ").unwrap();
+
+assert!(re.is_match("a regex with a / slash"));
+```
+
 A common issue when writing a regex is not knowing if a particular
 sigil has special meaning in a regex. Even if you know that '+' is
 special, it can be easy to forget to escape it, especially
@@ -284,12 +294,28 @@ remake parse error:
 Invalid token.
 ```
 
+# Comments
+
+remake has C-style comments like rust
+
+```rust
+use remake::Remake;
+let re = Remake::compile(r#"
+    // this is a line comment
+    let foo_re = 'foo';
+    /* and this is a 
+     * block comment
+     */
+    foo_re | /bar/
+    /* just like /* in rust */ block comments can be nested */
+    "#).unwrap();
+
+assert!(re.is_match("bar"));
+```
+
 [emode]: https://github.com/rust-lang/regex#usage
 [regexcrate]: https://github.com/rust-lang/regex
 */
-
-// TODO: add a usage section once this is on crates.io and I can actually
-//       explain how to pull it into a project.
 
 extern crate regex_syntax;
 pub extern crate regex;
@@ -514,18 +540,10 @@ impl fmt::Debug for Error {
     }
 }
 
-// TODO(ethan): Cleanup and going over error messages to make sure that they
-//              are useful.
-//              - Code coverage
-//              - Refactor tests
-//              - Refactor evaluation into its own module
-// TODO(ethan): Comment support.
 // TODO(ethan): Docs.
-//              - Rustdocs
-//              - README.md
-//                  - Badges
-//                  - Point to documentation
-//                  - Point to crates.io (chicken/egg here)
+//      - README.md
+//          - Badges
+//              - coveralls
 // TODO(ethan): Run rustfmt (how do I avoid mangling multi-line strings?)
 // TODO(ethan): Release!!! (don't talk about it until we have lambdas though).
 
