@@ -317,16 +317,16 @@ assert!(re.is_match("bar"));
 [regexcrate]: https://github.com/rust-lang/regex
 */
 
-extern crate regex_syntax;
-pub extern crate regex;
-extern crate lalrpop_util;
 extern crate failure;
+extern crate lalrpop_util;
+pub extern crate regex;
+extern crate regex_syntax;
 
 mod ast;
-mod lex;
-mod parse;
 mod error;
+mod lex;
 mod operators;
+mod parse;
 mod util;
 
 //
@@ -354,8 +354,8 @@ mod util;
 // need to know about the RemakeArgument trait.
 //
 
-use std::fmt;
 use error::InternalError;
+use std::fmt;
 
 /// A remake expression, which can be compiled into a regex.
 #[derive(Clone)]
@@ -374,7 +374,8 @@ impl Remake {
     /// # Example: A mostly-wrong URI validator
     /// ```rust
     /// use remake::Remake;
-    /// let web_uri_re = Remake::compile(r#"
+    /// let web_uri_re = Remake::compile(
+    ///     r#"
     ///     let scheme = /https?:/ . '//';
     ///     let auth = /[\w\.\-_]+/;
     ///     let path = ('/' . /[\w\-_]+/)*;
@@ -386,16 +387,21 @@ impl Remake {
     ///     . ('?' . query_body)?
     ///     . ('#' . frag_body)?
     ///     . /$/
-    ///     "#).unwrap();
+    ///     "#,
+    /// ).unwrap();
     ///
     /// assert!(web_uri_re.is_match("https://www.rust-lang.org"));
     /// assert!(web_uri_re.is_match("https://github.com/ethanpailes/remake"));
     ///
     /// assert_eq!(
     ///     web_uri_re
-    ///         .captures("https://tools.ietf.org/html/rfc3986#section-1.1.3").unwrap()
-    ///         .name("frag").unwrap().as_str(),
-    ///         "section-1.1.3");
+    ///         .captures("https://tools.ietf.org/html/rfc3986#section-1.1.3")
+    ///         .unwrap()
+    ///         .name("frag")
+    ///         .unwrap()
+    ///         .as_str(),
+    ///     "section-1.1.3"
+    /// );
     /// ```
     ///
     /// # Errors:
@@ -428,8 +434,13 @@ impl Remake {
     /// [`Error::ParseError`](enum.Error.html).
     pub fn new(src: String) -> Result<Remake, Error> {
         let mut remake = Remake {
-            expr: ast::Expr::new(ast::ExprKind::ExprPoison,
-                                 ast::Span { start: 0, end: 0 }),
+            expr: ast::Expr::new(
+                ast::ExprKind::ExprPoison,
+                ast::Span {
+                    start: 0,
+                    end: 0,
+                },
+            ),
             src: src,
         };
 
@@ -440,18 +451,26 @@ impl Remake {
                 Ok(expr) => expr,
                 Err(err) => {
                     return Err(Error::ParseError(match err {
-                        lalrpop_util::ParseError::User { error } =>
-                            format!("{}", error.overlay(&remake.src)),
+                        lalrpop_util::ParseError::User { error } => {
+                            format!("{}", error.overlay(&remake.src))
+                        }
 
-                        lalrpop_util::ParseError::InvalidToken { location } =>
-                            format!("{}",
+                        lalrpop_util::ParseError::InvalidToken { location } => {
+                            format!(
+                                "{}",
                                 InternalError::new(
                                     error::ErrorKind::InvalidToken,
-                                    ast::Span { start: location, end: location + 1 }
-                                    ).overlay(&remake.src)),
+                                    ast::Span {
+                                        start: location,
+                                        end: location + 1,
+                                    }
+                                ).overlay(&remake.src)
+                            )
+                        }
 
                         lalrpop_util::ParseError::UnrecognizedToken {
-                            token: Some((l, tok, r)), expected
+                            token: Some((l, tok, r)),
+                            expected,
                         } => format!(
                             "{}",
                             InternalError::new(
@@ -459,8 +478,12 @@ impl Remake {
                                     token: tok.to_string(),
                                     expected: expected,
                                 },
-                                ast::Span { start: l, end: r }
-                                ).overlay(&remake.src)),
+                                ast::Span {
+                                    start: l,
+                                    end: r
+                                }
+                            ).overlay(&remake.src)
+                        ),
 
                         err => format!("{}", err),
                     }));
@@ -493,8 +516,10 @@ impl Remake {
     pub fn eval(self) -> Result<regex::Regex, Error> {
         match self.expr.eval() {
             Ok(ast) => Ok(regex::Regex::new(&ast.to_string()).unwrap()),
-            Err(err) => Err(Error::RuntimeError(
-                            format!("{}", err.overlay(&self.src)))),
+            Err(err) => Err(Error::RuntimeError(format!(
+                "{}",
+                err.overlay(&self.src)
+            ))),
         }
     }
 }
@@ -542,9 +567,6 @@ impl fmt::Debug for Error {
 
 // TODO(ethan): Docs.
 //      - README.md
-//          - Badges
-//              - coveralls
-// TODO(ethan): Run rustfmt (how do I avoid mangling multi-line strings?)
 // TODO(ethan): Release!!! (don't talk about it until we have lambdas though).
 
 #[cfg(test)]
@@ -556,14 +578,19 @@ mod tests {
             #[test]
             fn $test_name() {
                 let re = Remake::compile($remake_src).unwrap();
-                assert!(re.is_match($input),
-                    format!("/{:?}/ does not match {:?}.", re, $input));
+                assert!(
+                    re.is_match($input),
+                    format!("/{:?}/ does not match {:?}.", re, $input)
+                );
             }
-        }
+        };
     }
 
     macro_rules! captures {
-        ($test_name:ident, $remake_src:expr, $input:expr, $( $group:expr ),*) => {
+        ($test_name:ident,
+         $remake_src:expr,
+         $input:expr,
+         $( $group:expr ),*) => {
             #[test]
             fn $test_name() {
                 let re = Remake::compile($remake_src)
@@ -582,7 +609,10 @@ mod tests {
     }
 
     macro_rules! captures_named {
-        ($test_name:ident, $remake_src:expr, $input:expr, $( $group:expr ),*) => {
+        ($test_name:ident,
+         $remake_src:expr,
+         $input:expr,
+         $( $group:expr ),*) => {
             #[test]
             fn $test_name() {
                 use std::str::FromStr;
@@ -614,10 +644,12 @@ mod tests {
             #[test]
             fn $test_name() {
                 let re = Remake::compile($remake_src).unwrap();
-                assert!(!re.is_match($input),
-                    format!("/{:?}/ matches {:?}.", re, $input));
+                assert!(
+                    !re.is_match($input),
+                    format!("/{:?}/ matches {:?}.", re, $input)
+                );
             }
-        }
+        };
     }
 
     macro_rules! error_pre {
@@ -632,7 +664,7 @@ mod tests {
                         // case uncommenting this can help debug.
                         //
                         // assert_eq!($expected_err_str, err_msg);
-                        
+
                         if !err_msg.starts_with($expected_err_str) {
                             // We unwrap rather than asserting or something
                             // a little more reasonable so that we can see
@@ -640,11 +672,10 @@ mod tests {
                             result.clone().unwrap();
                         }
                     }
-                    &Ok(ref res) =>
-                        panic!("Should not eval. res={:?}", res),
+                    &Ok(ref res) => panic!("Should not eval. res={:?}", res),
                 }
             }
-        }
+        };
     }
 
     //
@@ -654,72 +685,100 @@ mod tests {
     mat!(lit_1, r"/a/", "a");
     mat!(lit_2, r"'a'", "a");
     mat!(lit_3, r"/\p{Currency_Symbol}/", r"$");
-    mat!(lit_4, r"'\p{Currency_Symbol}'", r"\p{Currency_Symbol}");
-    mat!(lit_5, r"'\u{Currency_Symbol}'", r"\u{Currency_Symbol}");
+    mat!(
+        lit_4,
+        r"'\p{Currency_Symbol}'",
+        r"\p{Currency_Symbol}"
+    );
+    mat!(
+        lit_5,
+        r"'\u{Currency_Symbol}'",
+        r"\u{Currency_Symbol}"
+    );
 
     //
     // remake parse errors
     //
-    
-    error_pre!(unmatched_tick_1_, r"'a",
+
+    error_pre!(
+        unmatched_tick_1_,
+        r"'a",
         r#"
 remake parse error:
     at line 1, col 1:
     0001 > 'a
            ^^
 remake lexical error:
-Unclosed raw regex literal."#);
+Unclosed raw regex literal."#
+    );
 
-    error_pre!(unmatched_tick_2_, r"a'",
+    error_pre!(
+        unmatched_tick_2_,
+        r"a'",
         r#"
 remake parse error:
     at line 1, col 2:
     0001 > a'
             ^
 remake lexical error:
-Unclosed raw regex literal."#);
+Unclosed raw regex literal."#
+    );
 
-    error_pre!(unmatched_slash_1_, r"/a",
+    error_pre!(
+        unmatched_slash_1_,
+        r"/a",
         r#"
 remake parse error:
     at line 1, col 1:
     0001 > /a
            ^^
 remake lexical error:
-Unclosed regex literal."#);
+Unclosed regex literal."#
+    );
 
-    error_pre!(unmatched_slash_2_, r"a/",
+    error_pre!(
+        unmatched_slash_2_,
+        r"a/",
         r#"
 remake parse error:
     at line 1, col 2:
     0001 > a/
             ^
 remake lexical error:
-Unclosed regex literal."#);
+Unclosed regex literal."#
+    );
 
-    error_pre!(unmatched_tick_slash_1_, r"'a/",
+    error_pre!(
+        unmatched_tick_slash_1_,
+        r"'a/",
         r#"
 remake parse error:
     at line 1, col 1:
     0001 > 'a/
            ^^^
 remake lexical error:
-Unclosed raw regex literal."#);
+Unclosed raw regex literal."#
+    );
 
-    error_pre!(unmatched_tick_slash_2_, r"/a'",
+    error_pre!(
+        unmatched_tick_slash_2_,
+        r"/a'",
         r#"
 remake parse error:
     at line 1, col 1:
     0001 > /a'
            ^^^
 remake lexical error:
-Unclosed regex literal."#);
+Unclosed regex literal."#
+    );
 
     //
     // parse errors that bubble up from the regex crate
     //
-    
-    error_pre!(re_parse_err_1_, r"/a[/", 
+
+    error_pre!(
+        re_parse_err_1_,
+        r"/a[/",
         r#"
 remake parse error:
     at line 1, col 1:
@@ -729,9 +788,12 @@ Error parsing the regex literal: /a[/
     regex parse error:
         a[
          ^
-    error: unclosed character class"#);
+    error: unclosed character class"#
+    );
 
-    error_pre!(re_parse_err_2_, r"/a[]/",
+    error_pre!(
+        re_parse_err_2_,
+        r"/a[]/",
         r#"
 remake parse error:
     at line 1, col 1:
@@ -741,9 +803,11 @@ Error parsing the regex literal: /a[]/
     regex parse error:
         a[]
          ^^
-    error: unclosed character class"#);
+    error: unclosed character class"#
+    );
 
-    error_pre!(re_multiline_parse_err_1_,
+    error_pre!(
+        re_multiline_parse_err_1_,
         r#"
 
             /a[/
@@ -760,27 +824,37 @@ Error parsing the regex literal: /a[/
     regex parse error:
         a[
          ^
-    error: unclosed character class"#);
+    error: unclosed character class"#
+    );
 
-    error_pre!(unrecognized_token_1_, r"/foo/ /foo/",
+    error_pre!(
+        unrecognized_token_1_,
+        r"/foo/ /foo/",
         r#"
 remake parse error:
     at line 1, col 7:
     0001 > /foo/ /foo/
                  ^^^^^
-Unexpected token '/foo/'. Expected one of:"#);
+Unexpected token '/foo/'. Expected one of:"#
+    );
 
-    error_pre!(binary_plus_1_, r"/foo/ + /bar/",
+    error_pre!(
+        binary_plus_1_,
+        r"/foo/ + /bar/",
         r#"
 remake parse error:
     at line 1, col 9:
     0001 > /foo/ + /bar/
                    ^^^^^
-Unexpected token '/bar/'. Expected one of:"#);
+Unexpected token '/bar/'. Expected one of:"#
+    );
 
-    error_pre!(binary_plus_multiline_1_, r#"/foo/ +
+    error_pre!(
+        binary_plus_multiline_1_,
+        r#"/foo/ +
         /bar
-        /"#, r#"
+        /"#,
+        r#"
 remake parse error:
     starting at line 2, col 9 and ending at line 3, col 10:
     0001  > /foo/ +
@@ -789,16 +863,20 @@ remake parse error:
     0003  >         /
     end   >         ^
 Unexpected token '/bar
-        /'. Expected one of:"#);
+        /'. Expected one of:"#
+    );
 
-    error_pre!(binary_plus_multiline_2_, r#"
+    error_pre!(
+        binary_plus_multiline_2_,
+        r#"
         /foo/ + /
         
         bar
 
 
 
-        /"#, r#"
+        /"#,
+        r#"
 remake parse error:
     starting at line 2, col 17 and ending at line 8, col 10:
     0001  > 
@@ -809,7 +887,8 @@ remake parse error:
     0007  > 
     0008  >         /
     end   >         ^
-Unexpected token"#);
+Unexpected token"#
+    );
 
     //
     // Remake expressions.
@@ -852,74 +931,140 @@ Unexpected token"#);
     mat!(lazy_exact_3_, r"/a/ {3}?", "aaa");
     mat!(lazy_exact_4_, r"/a/ {3 }? . 'b'", "aaab");
 
-
     mat!(greedy_atleast_1_, r"/a/ {3,}", "aaaaaaaa");
-    mat!(greedy_atleast_2_, r"/a/ { 3 , } . 'b'", "aaaaaab");
+    mat!(
+        greedy_atleast_2_,
+        r"/a/ { 3 , } . 'b'",
+        "aaaaaab"
+    );
     no_mat!(greedy_atleast_3_, r"/a/ { 3 , } . 'b'", "ab");
 
     mat!(lazy_atleast_1_, r"/a/ {3,}?", "aaaaaaaa");
-    mat!(lazy_atleast_2_, r"/a/ { 3 , }? . 'b'", "aaaaaab");
+    mat!(
+        lazy_atleast_2_,
+        r"/a/ { 3 , }? . 'b'",
+        "aaaaaab"
+    );
     no_mat!(lazy_atleast_3_, r"/a/ { 3 , }? . 'b'", "ab");
 
-    captures!(cap_basic_1_, r"/a(b)a/", "aba",
-        Some("b"));
+    captures!(cap_basic_1_, r"/a(b)a/", "aba", Some("b"));
 
-    captures!(cap_remake_1_, r"/a/ . cap /b/ . /a/", "aba",
-        Some("b"));
-    captures!(cap_remake_2_, r"cap (/a/ . cap /b/ . /a/)", "aba",
-        Some("aba"), Some("b"));
+    captures!(
+        cap_remake_1_,
+        r"/a/ . cap /b/ . /a/",
+        "aba",
+        Some("b")
+    );
+    captures!(
+        cap_remake_2_,
+        r"cap (/a/ . cap /b/ . /a/)",
+        "aba",
+        Some("aba"),
+        Some("b")
+    );
 
-    captures!(cap_remake_mixed_1_, r"cap (/a/ . /(b)/ . /a/)", "aba",
-        Some("aba"), Some("b"));
-    captures!(cap_remake_mixed_2_, r"/(a)/ . cap (/a/ . /(b)/ . /a/)", "aaba",
-        Some("a"), Some("aba"), Some("b"));
-    captures!(cap_remake_mixed_3_, r"cap /blah/ . (/(a)/ | (/b/ . cap /c/))", 
+    captures!(
+        cap_remake_mixed_1_,
+        r"cap (/a/ . /(b)/ . /a/)",
+        "aba",
+        Some("aba"),
+        Some("b")
+    );
+    captures!(
+        cap_remake_mixed_2_,
+        r"/(a)/ . cap (/a/ . /(b)/ . /a/)",
+        "aaba",
+        Some("a"),
+        Some("aba"),
+        Some("b")
+    );
+    captures!(
+        cap_remake_mixed_3_,
+        r"cap /blah/ . (/(a)/ | (/b/ . cap /c/))",
         "blahbc",
-        Some("blah"), None, Some("c"));
-    captures!(cap_remake_mixed_4_, r"/(a)(b)(c)/ . cap /blah/", "abcblah",
-        Some("a"), Some("b"), Some("c"), Some("blah"));
+        Some("blah"),
+        None,
+        Some("c")
+    );
+    captures!(
+        cap_remake_mixed_4_,
+        r"/(a)(b)(c)/ . cap /blah/",
+        "abcblah",
+        Some("a"),
+        Some("b"),
+        Some("c"),
+        Some("blah")
+    );
 
-    captures_named!(cap_remake_named_1_, r"/a/ . cap /b/ as foo . /a/", "aba",
-        ("foo", Some("b")));
-    captures_named!(cap_remake_named_2_, r"cap cap /foo/ as blah", "foo",
-                    ("_1", Some("foo")), ("blah", Some("foo")));
+    captures_named!(
+        cap_remake_named_1_,
+        r"/a/ . cap /b/ as foo . /a/",
+        "aba",
+        ("foo", Some("b"))
+    );
+    captures_named!(
+        cap_remake_named_2_,
+        r"cap cap /foo/ as blah",
+        "foo",
+        ("_1", Some("foo")),
+        ("blah", Some("foo"))
+    );
 
     mat!(block_basic_1_, r"{ /a/ }", "a");
 
     mat!(block_repeat_1_, r"{ /a/{2} }", "aa");
     no_mat!(block_repeat_2_, r"{ /a/{3,} }", "aa");
 
-    mat!(block_unused_let_1_, r#"{
+    mat!(
+        block_unused_let_1_,
+        r#"{
         let foo = /a/;
         /b/
-    }"#, "b");
+    }"#,
+        "b"
+    );
 
-    mat!(toplevel_unused_let_1_, r#"
+    mat!(
+        toplevel_unused_let_1_,
+        r#"
         let foo = /a/;
         /b/
-    "#, "b");
+    "#,
+        "b"
+    );
 
-    mat!(toplevel_let_1_, r#"
+    mat!(
+        toplevel_let_1_,
+        r#"
         let foo = /a/;
         foo
-    "#, "a");
+    "#,
+        "a"
+    );
 
-    mat!(toplevel_let_2_, r#"
+    mat!(
+        toplevel_let_2_,
+        r#"
         let foo = /a/;
         foo . /bar/
-    "#, "abar");
+    "#,
+        "abar"
+    );
 
-
-    error_pre!(name_error_1_, r#"
+    error_pre!(
+        name_error_1_,
+        r#"
         foo
-    "#, r#"
+    "#,
+        r#"
 remake evaluation error:
     at line 2, col 9:
     0001 > 
     0002 >         foo
                    ^^^
     0003 >     
-NameError: unknown variable 'foo'."#);
+NameError: unknown variable 'foo'."#
+    );
 
     error_pre!(num_too_long_1_,
         r"'a'{11111111111111111111111111111111111111111111111111111111}",
@@ -931,32 +1076,82 @@ remake parse error:
 remake lexical error:
 Error parsing '11111111111111111111111111111111111111111111111111111111' as a number:"#);
 
-
     mat!(alt_merge_1_, r"/a|b/ | /c/", "c");
     mat!(alt_merge_2_, r"/c/ | /a|b/", "c");
     mat!(alt_merge_3_, r"/c|d/ | /a|b/", "d");
 
-    mat!(block_1_, r#"
+    mat!(
+        block_1_,
+        r#"
         let gen_delims = ':' | '/' | '?' | '[' | ']' | '@';
         'foo'
     "#,
-    "foo");
+        "foo"
+    );
 
-    mat!(repeated_concat_1_, r"/^/ . ('/' . /[\w\-_]+/)* . /$/", "");
-    mat!(repeated_concat_2_, r"/^/ . ('/' . /[\w\-_]+/)* . /$/", "/a/b/c");
+    mat!(
+        repeated_concat_1_,
+        r"/^/ . ('/' . /[\w\-_]+/)* . /$/",
+        ""
+    );
+    mat!(
+        repeated_concat_2_,
+        r"/^/ . ('/' . /[\w\-_]+/)* . /$/",
+        "/a/b/c"
+    );
 
-    mat!(repeated_concat_3_, r"/^/ . ('/' . /[\w\-_]+?/)* . /$/", "");
-    mat!(repeated_concat_4_, r"/^/ . ('/' . /[\w\-_]+?/)* . /$/", "/a/b/c");
+    mat!(
+        repeated_concat_3_,
+        r"/^/ . ('/' . /[\w\-_]+?/)* . /$/",
+        ""
+    );
+    mat!(
+        repeated_concat_4_,
+        r"/^/ . ('/' . /[\w\-_]+?/)* . /$/",
+        "/a/b/c"
+    );
 
-    mat!(repeated_concat_5_, r"/^/ . ('/' . /[\w\-_]+/)+ . /$/", "/a/b/c");
-    mat!(repeated_concat_6_, r"/^/ . ('/' . /[\w\-_]+/)+? . /$/", "/a/b/c");
+    mat!(
+        repeated_concat_5_,
+        r"/^/ . ('/' . /[\w\-_]+/)+ . /$/",
+        "/a/b/c"
+    );
+    mat!(
+        repeated_concat_6_,
+        r"/^/ . ('/' . /[\w\-_]+/)+? . /$/",
+        "/a/b/c"
+    );
 
-    mat!(repeated_concat_7_, r"/^/ . ('/' . /[\w\-_]+/){3} . /$/", "/a/b/c");
-    mat!(repeated_concat_8_, r"/^/ . ('/' . /[\w\-_]+/){3}? . /$/", "/a/b/c");
+    mat!(
+        repeated_concat_7_,
+        r"/^/ . ('/' . /[\w\-_]+/){3} . /$/",
+        "/a/b/c"
+    );
+    mat!(
+        repeated_concat_8_,
+        r"/^/ . ('/' . /[\w\-_]+/){3}? . /$/",
+        "/a/b/c"
+    );
 
-    mat!(repeated_concat_9_, r"/^/ . ('/' . /[\w\-_]+/){1,} . /$/", "/a/b/c");
-    mat!(repeated_concat_10_, r"/^/ . ('/' . /[\w\-_]+/){1,}? . /$/", "/a/b/c");
+    mat!(
+        repeated_concat_9_,
+        r"/^/ . ('/' . /[\w\-_]+/){1,} . /$/",
+        "/a/b/c"
+    );
+    mat!(
+        repeated_concat_10_,
+        r"/^/ . ('/' . /[\w\-_]+/){1,}? . /$/",
+        "/a/b/c"
+    );
 
-    mat!(repeated_concat_11_, r"/^/ . ('/' . /[\w\-_]+/){1,5} . /$/", "/a/b/c");
-    mat!(repeated_concat_12_, r"/^/ . ('/' . /[\w\-_]+/){1,5}? . /$/", "/a/b/c");
+    mat!(
+        repeated_concat_11_,
+        r"/^/ . ('/' . /[\w\-_]+/){1,5} . /$/",
+        "/a/b/c"
+    );
+    mat!(
+        repeated_concat_12_,
+        r"/^/ . ('/' . /[\w\-_]+/){1,5}? . /$/",
+        "/a/b/c"
+    );
 }

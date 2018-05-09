@@ -33,7 +33,7 @@ impl InternalError {
     pub fn overlay<'a, 'e>(&'e self, src: &'a str) -> ErrorSrcOverlay<'a, 'e> {
         ErrorSrcOverlay {
             src: src,
-            err: &self
+            err: &self,
         }
     }
 }
@@ -60,24 +60,34 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use error::ErrorKind::*;
 
-        write!(f, "{}", block_leftpad(
-            &PosSpan::new(&self.src, &self.err.span)
-                .highlight(&self.src),
-            4))?;
+        write!(
+            f,
+            "{}",
+            block_leftpad(
+                &PosSpan::new(&self.src, &self.err.span).highlight(&self.src),
+                4
+            )
+        )?;
 
         match &self.err.kind {
-            &RegexError { ref re, ref err } => {
+            &RegexError {
+                ref re,
+                ref err,
+            } => {
                 writeln!(f, "Error parsing the regex literal: /{}/", re)?;
                 write!(f, "{}", block_leftpad(err, 4))?;
             }
-            &LexicalError(ref kind) => { 
+            &LexicalError(ref kind) => {
                 writeln!(f, "remake lexical error:")?;
                 write!(f, "{}", kind)?;
             }
             &InvalidToken => {
                 writeln!(f, "Invalid token.")?;
             }
-            &UnrecognizedToken { ref token, ref expected } => {
+            &UnrecognizedToken {
+                ref token,
+                ref expected,
+            } => {
                 write!(f, "Unexpected token '{}'.", token)?;
                 if expected.len() > 0 {
                     write!(f, " Expected one of:")?;
@@ -192,15 +202,22 @@ impl PosSpan {
         if self.start_line != self.end_line {
             self.highlight_multiline(src)
         } else {
-            let mut s = format!("at line {}, col {}:\n",
-                self.start_line, self.start_col);
+            let mut s = format!(
+                "at line {}, col {}:\n",
+                self.start_line, self.start_col
+            );
 
             for (i, line) in src.split("\n").enumerate() {
                 let line_no = i + 1;
 
                 // Print two lines of context
-                if line_no > self.start_line.saturating_sub(Self::CONTEXT_LINES)
-                    && line_no < self.start_line.saturating_add(Self::CONTEXT_LINES) {
+                if line_no
+                    > self.start_line
+                        .saturating_sub(Self::CONTEXT_LINES)
+                    && line_no
+                        < self.start_line
+                            .saturating_add(Self::CONTEXT_LINES)
+                {
                     s.push_str(&format!("{:04} > ", line_no));
                     s.push_str(line);
                     s.push('\n');
@@ -230,34 +247,50 @@ impl PosSpan {
     fn highlight_multiline(&self, src: &str) -> String {
         let mut s = format!(
             "starting at line {}, col {} and ending at line {}, col {}:\n",
-            self.start_line, self.start_col,
-            self.end_line, self.end_col);
+            self.start_line, self.start_col, self.end_line, self.end_col
+        );
 
         let mut printed_dots = false;
         for (i, line) in src.split("\n").enumerate() {
             let line_no = i + 1;
 
             // Print two lines of context around the starting line
-            if line_no > self.start_line.saturating_sub(Self::CONTEXT_LINES)
-                && line_no < self.start_line.saturating_add(Self::CONTEXT_LINES)
+            if line_no
+                > self.start_line
+                    .saturating_sub(Self::CONTEXT_LINES)
+                && line_no
+                    < self.start_line
+                        .saturating_add(Self::CONTEXT_LINES)
             {
                 s.push_str(&format!("{:04}  > ", line_no));
                 s.push_str(line);
                 s.push('\n');
             }
 
-            if line_no > self.start_line.saturating_add(Self::CONTEXT_LINES)
-                && line_no < self.end_line.saturating_sub(Self::CONTEXT_LINES)
+            if line_no
+                > self.start_line
+                    .saturating_add(Self::CONTEXT_LINES)
+                && line_no
+                    < self.end_line
+                        .saturating_sub(Self::CONTEXT_LINES)
                 && !printed_dots
             {
                 s.push_str("...\n");
                 printed_dots = true;
             }
 
-            if line_no > self.end_line.saturating_sub(Self::CONTEXT_LINES)
-                && line_no < self.end_line.saturating_add(Self::CONTEXT_LINES)
-                && !(line_no > self.start_line.saturating_sub(Self::CONTEXT_LINES)
-                    && line_no < self.start_line.saturating_add(Self::CONTEXT_LINES))
+            if line_no
+                > self.end_line
+                    .saturating_sub(Self::CONTEXT_LINES)
+                && line_no
+                    < self.end_line
+                        .saturating_add(Self::CONTEXT_LINES)
+                && !(line_no
+                    > self.start_line
+                        .saturating_sub(Self::CONTEXT_LINES)
+                    && line_no
+                        < self.start_line
+                            .saturating_add(Self::CONTEXT_LINES))
             {
                 s.push_str(&format!("{:04}  > ", line_no));
                 s.push_str(line);
@@ -285,7 +318,7 @@ impl PosSpan {
 
         s
     }
-    
+
     const CONTEXT_LINES: usize = 2;
 }
 
@@ -298,8 +331,8 @@ impl PosSpan {
 fn block_leftpad(block: &str, pad: usize) -> String {
     // Guess that most blocks are going to have columns of 100
     // chars or less.
-    let mut s = String::with_capacity(
-        block.len() + (pad * (block.len() / 100)));
+    let mut s =
+        String::with_capacity(block.len() + (pad * (block.len() / 100)));
 
     let mut pad_str = String::with_capacity(pad);
     for _ in 0..pad {

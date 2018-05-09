@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use regex_syntax;
-use regex_syntax::ast::{RepetitionKind, GroupKind};
+use regex_syntax::ast::{GroupKind, RepetitionKind};
 
-use error::{InternalError, ErrorKind};
+use error::{ErrorKind, InternalError};
 use operators;
 use operators::noncapturing_group;
 use util::POISON_SPAN;
@@ -32,89 +32,88 @@ impl Expr {
         self,
         env: &mut EvalEnv,
     ) -> Result<Box<regex_syntax::ast::Ast>, InternalError> {
-
         match self.kind {
             ExprKind::RegexLiteral(r) => Ok(r),
-            ExprKind::BinOp(lhs, op, rhs) => {
-                match op {
-                    BOp::Concat =>
-                        Ok(operators::concat(
-                            lhs.eval_(env)?, rhs.eval_(env)?)),
-                    BOp::Alt =>
-                        Ok(operators::alt(
-                            lhs.eval_(env)?, rhs.eval_(env)?))
+            ExprKind::BinOp(lhs, op, rhs) => match op {
+                BOp::Concat => Ok(operators::concat(
+                    lhs.eval_(env)?,
+                    rhs.eval_(env)?,
+                )),
+                BOp::Alt => {
+                    Ok(operators::alt(lhs.eval_(env)?, rhs.eval_(env)?))
                 }
-            }
-            ExprKind::UnaryOp(op, e) => {
-                match op {
-                    UOp::RepeatZeroOrMore(greedy) => {
-                        Ok(Box::new(regex_syntax::ast::Ast::Repetition(
-                            regex_syntax::ast::Repetition {
+            },
+            ExprKind::UnaryOp(op, e) => match op {
+                UOp::RepeatZeroOrMore(greedy) => {
+                    Ok(Box::new(regex_syntax::ast::Ast::Repetition(
+                        regex_syntax::ast::Repetition {
+                            span: POISON_SPAN,
+                            op: regex_syntax::ast::RepetitionOp {
                                 span: POISON_SPAN,
-                                op: regex_syntax::ast::RepetitionOp {
-                                    span: POISON_SPAN,
-                                    kind: RepetitionKind::ZeroOrMore,
-                                },
-                                greedy: greedy,
-                                ast: Box::new(noncapturing_group(e.eval_(env)?)),
-                            })))
-                    }
-                    UOp::RepeatOneOrMore(greedy) => {
-                        Ok(Box::new(regex_syntax::ast::Ast::Repetition(
-                            regex_syntax::ast::Repetition {
-                                span: POISON_SPAN,
-                                op: regex_syntax::ast::RepetitionOp {
-                                    span: POISON_SPAN,
-                                    kind: RepetitionKind::OneOrMore,
-                                },
-                                greedy: greedy,
-                                ast: Box::new(noncapturing_group(e.eval_(env)?)),
-                            })))
-                    }
-                    UOp::RepeatZeroOrOne(greedy) => {
-                        Ok(Box::new(regex_syntax::ast::Ast::Repetition(
-                            regex_syntax::ast::Repetition {
-                                span: POISON_SPAN,
-                                op: regex_syntax::ast::RepetitionOp {
-                                    span: POISON_SPAN,
-                                    kind: RepetitionKind::ZeroOrOne,
-                                },
-                                greedy: greedy,
-                                ast: Box::new(noncapturing_group(e.eval_(env)?)),
-                            })))
-                    }
-                    UOp::RepeatRange(greedy, range) => {
-                        Ok(Box::new(regex_syntax::ast::Ast::Repetition(
-                            regex_syntax::ast::Repetition {
-                                span: POISON_SPAN,
-                                op: regex_syntax::ast::RepetitionOp {
-                                    span: POISON_SPAN,
-                                    kind: RepetitionKind::Range(range),
-                                },
-                                greedy: greedy,
-                                ast: Box::new(noncapturing_group(e.eval_(env)?)),
-                            })))
-                    }
-                }
-            }
-
-            ExprKind::Capture(e, name) => {
-                Ok(Box::new(regex_syntax::ast::Ast::Group(
-                    regex_syntax::ast::Group {
-                        span: POISON_SPAN,
-                        kind: match name {
-                            Some(n) => GroupKind::CaptureName(
-                                regex_syntax::ast::CaptureName {
-                                    span: POISON_SPAN,
-                                    name: n,
-                                    index: BOGUS_GROUP_INDEX,
-                                }
-                            ),
-                            None => GroupKind::CaptureIndex(BOGUS_GROUP_INDEX),
+                                kind: RepetitionKind::ZeroOrMore,
+                            },
+                            greedy: greedy,
+                            ast: Box::new(noncapturing_group(e.eval_(env)?)),
                         },
-                        ast: e.eval_(env)?,
-                    })))
-            }
+                    )))
+                }
+                UOp::RepeatOneOrMore(greedy) => {
+                    Ok(Box::new(regex_syntax::ast::Ast::Repetition(
+                        regex_syntax::ast::Repetition {
+                            span: POISON_SPAN,
+                            op: regex_syntax::ast::RepetitionOp {
+                                span: POISON_SPAN,
+                                kind: RepetitionKind::OneOrMore,
+                            },
+                            greedy: greedy,
+                            ast: Box::new(noncapturing_group(e.eval_(env)?)),
+                        },
+                    )))
+                }
+                UOp::RepeatZeroOrOne(greedy) => {
+                    Ok(Box::new(regex_syntax::ast::Ast::Repetition(
+                        regex_syntax::ast::Repetition {
+                            span: POISON_SPAN,
+                            op: regex_syntax::ast::RepetitionOp {
+                                span: POISON_SPAN,
+                                kind: RepetitionKind::ZeroOrOne,
+                            },
+                            greedy: greedy,
+                            ast: Box::new(noncapturing_group(e.eval_(env)?)),
+                        },
+                    )))
+                }
+                UOp::RepeatRange(greedy, range) => {
+                    Ok(Box::new(regex_syntax::ast::Ast::Repetition(
+                        regex_syntax::ast::Repetition {
+                            span: POISON_SPAN,
+                            op: regex_syntax::ast::RepetitionOp {
+                                span: POISON_SPAN,
+                                kind: RepetitionKind::Range(range),
+                            },
+                            greedy: greedy,
+                            ast: Box::new(noncapturing_group(e.eval_(env)?)),
+                        },
+                    )))
+                }
+            },
+
+            ExprKind::Capture(e, name) => Ok(Box::new(
+                regex_syntax::ast::Ast::Group(regex_syntax::ast::Group {
+                    span: POISON_SPAN,
+                    kind: match name {
+                        Some(n) => GroupKind::CaptureName(
+                            regex_syntax::ast::CaptureName {
+                                span: POISON_SPAN,
+                                name: n,
+                                index: BOGUS_GROUP_INDEX,
+                            },
+                        ),
+                        None => GroupKind::CaptureIndex(BOGUS_GROUP_INDEX),
+                    },
+                    ast: e.eval_(env)?,
+                }),
+            )),
 
             ExprKind::Block(statements, value) => {
                 env.push_block_env();
@@ -130,7 +129,7 @@ impl Expr {
             ExprKind::Var(var) => {
                 let span = self.span;
                 env.lookup(var)
-                   .map_err(|e| InternalError::new(e, span))
+                    .map_err(|e| InternalError::new(e, span))
             }
 
             ExprKind::ExprPoison => panic!("Bug in remake."),
@@ -171,7 +170,7 @@ impl EvalEnv {
     fn lookup(&self, var: String) -> Result<Value, ErrorKind> {
         for env in self.block_envs.iter().rev() {
             match env.get(&var) {
-                None => {},
+                None => {}
                 // TODO(ethan): drop the clone
                 Some(val) => return Ok(val.clone()),
             }

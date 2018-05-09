@@ -1,7 +1,7 @@
-use std::str::{FromStr, CharIndices};
-use std::num::ParseIntError;
 use std::convert::From;
 use std::fmt;
+use std::num::ParseIntError;
+use std::str::{CharIndices, FromStr};
 
 use regex::Regex;
 
@@ -95,32 +95,45 @@ pub enum LexicalErrorKind {
 impl<'input> fmt::Display for LexicalErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &LexicalErrorKind::UnclosedRegexLiteral =>
-                write!(f, "Unclosed regex literal."),
-            &LexicalErrorKind::UnclosedRawRegexLiteral =>
-                write!(f, "Unclosed raw regex literal."),
-            &LexicalErrorKind::EmptyRawRegexLiteral =>
-                write!(f, "Empty raw regex literal."),
-            &LexicalErrorKind::BadIdentifier =>
-                write!(f, "Bad identifier."),
-            &LexicalErrorKind::BadOperator=>
-                write!(f, "Bad operator."),
+            &LexicalErrorKind::UnclosedRegexLiteral => {
+                write!(f, "Unclosed regex literal.")
+            }
+            &LexicalErrorKind::UnclosedRawRegexLiteral => {
+                write!(f, "Unclosed raw regex literal.")
+            }
+            &LexicalErrorKind::EmptyRawRegexLiteral => {
+                write!(f, "Empty raw regex literal.")
+            }
+            &LexicalErrorKind::BadIdentifier => write!(f, "Bad identifier."),
+            &LexicalErrorKind::BadOperator => write!(f, "Bad operator."),
 
-            &LexicalErrorKind::NumParseError( ref num_str, ref err) =>
-                write!(f, "Error parsing '{}' as a number: {}.", num_str, err),
+            &LexicalErrorKind::NumParseError(ref num_str, ref err) => write!(
+                f,
+                "Error parsing '{}' as a number: {}.",
+                num_str, err
+            ),
 
-            &LexicalErrorKind::ReservedButNotUsedOperator { ref op, end: _ } =>
-                write!(f, "Reserved operator: '{}'.", op),
+            &LexicalErrorKind::ReservedButNotUsedOperator {
+                ref op,
+                end: _,
+            } => write!(f, "Reserved operator: '{}'.", op),
 
-            &LexicalErrorKind::ReservedButNotUsedKeyword{ ref word, end: _ } =>
-                write!(f, "Reserved keyword: '{}'.", word),
+            &LexicalErrorKind::ReservedButNotUsedKeyword {
+                ref word,
+                end: _,
+            } => write!(f, "Reserved keyword: '{}'.", word),
 
-            &LexicalErrorKind::UnclosedBlockComment { ref nest_level } =>
-                write!(f, "Unclosed block comment (nested {} levels deep).",
-                            nest_level),
+            &LexicalErrorKind::UnclosedBlockComment { ref nest_level } => {
+                write!(
+                    f,
+                    "Unclosed block comment (nested {} levels deep).",
+                    nest_level
+                )
+            }
 
-            &LexicalErrorKind::UnexpectedChar(ref c) =>
-                write!(f, "Unexpected char '{}'.", c),
+            &LexicalErrorKind::UnexpectedChar(ref c) => {
+                write!(f, "Unexpected char '{}'.", c)
+            }
         }
     }
 }
@@ -165,7 +178,7 @@ impl<'input> Lexer<'input> {
                 self.at = look.0;
                 Some(look)
             }
-            None => None
+            None => None,
         }
     }
 
@@ -181,14 +194,17 @@ impl<'input> Lexer<'input> {
             Span {
                 start: self.current_token_start,
                 end: self.at + 1,
-            })
+            },
+        )
     }
 
     fn look_check<F>(&self, pred: F) -> bool
     where
         F: Fn(char) -> bool,
     {
-        self.lookahead.map(|(_, c)| pred(c)).unwrap_or(false)
+        self.lookahead
+            .map(|(_, c)| pred(c))
+            .unwrap_or(false)
     }
 
     fn spanned(
@@ -214,8 +230,8 @@ impl<'input> Lexer<'input> {
 
     fn is_start_operator_char(&self, c: char) -> bool {
         match c {
-            '{' | '}' | '*' | '+' | '?' | '.' | '|' | ',' | ';'
-            | '=' | '(' | ')' => true,
+            '{' | '}' | '*' | '+' | '?' | '.' | '|' | ',' | ';' | '=' | '('
+            | ')' => true,
 
             // reserved but not used
             '&' | '!' | '[' | ']' | '-' | '<' | '>' | '^' => true,
@@ -255,9 +271,11 @@ impl<'input> Lexer<'input> {
             }
         }
 
-        Err(self.error(LexicalErrorKind::UnclosedBlockComment {
-            nest_level: open_blocks
-        }))
+        Err(
+            self.error(LexicalErrorKind::UnclosedBlockComment {
+                nest_level: open_blocks,
+            }),
+        )
     }
 
     fn line_comment(&mut self) {
@@ -276,29 +294,38 @@ impl<'input> Lexer<'input> {
                 '\\' if self.look_check(|c| c == '/') => {
                     s.push('/');
                     self.bump();
-                },
+                }
                 '/' => return Ok((Token::RegexLit(s), idx + 1)),
-                c => s.push(c)
+                c => s.push(c),
             }
         }
 
         Err(self.error(LexicalErrorKind::UnclosedRegexLiteral))
     }
 
-    fn raw_regex_lit(&mut self) -> Result<(Token<'input>, usize), InternalError> {
+    fn raw_regex_lit(
+        &mut self,
+    ) -> Result<(Token<'input>, usize), InternalError> {
         let start = match self.bump() {
-            Some((_, '\'')) =>
-                return Err(self.error(LexicalErrorKind::EmptyRawRegexLiteral)),
+            Some((_, '\'')) => {
+                return Err(self.error(LexicalErrorKind::EmptyRawRegexLiteral))
+            }
             Some((idx, _)) => idx,
-            None =>
-                return Err(self.error(LexicalErrorKind::UnclosedRawRegexLiteral)),
+            None => {
+                return Err(self.error(
+                    LexicalErrorKind::UnclosedRawRegexLiteral,
+                ))
+            }
         };
 
         while let Some((idx, c)) = self.bump() {
             match c {
-                '\'' =>
-                    return Ok((Token::RawRegexLit(
-                                &self.input[start..idx]), idx + 1)),
+                '\'' => {
+                    return Ok((
+                        Token::RawRegexLit(&self.input[start..idx]),
+                        idx + 1,
+                    ))
+                }
                 _ => continue,
             }
         }
@@ -331,18 +358,18 @@ impl<'input> Lexer<'input> {
                     "if" | "while" | "for" | "fn" | "else" | "match"
                     | "enum" | "true" | "false" | "return" | "in"
                     | "typeof" | "structured" | "continue" | "loop"
-                    | "break" | "struct" =>
-                        Err(self.error(LexicalErrorKind::ReservedButNotUsedKeyword {
+                    | "break" | "struct" => Err(self.error(
+                        LexicalErrorKind::ReservedButNotUsedKeyword {
                             word: String::from(m.as_str()),
-                            end: end
-                        })),
+                            end: end,
+                        },
+                    )),
 
                     id => Ok((Token::Id(id), end)),
                 }
             }
             None => Err(self.error(LexicalErrorKind::BadIdentifier)),
         }
-
     }
 
     fn num(&mut self) -> Result<(Token<'input>, usize), InternalError> {
@@ -353,23 +380,31 @@ impl<'input> Lexer<'input> {
             match self.bump() {
                 Some((idx, _)) => end = idx + 1,
                 None => {
-                    return Ok((Token::U32(
-                        u32::from_str(&self.input[start..])
-                            .map_err(|e|
+                    return Ok((
+                        Token::U32(u32::from_str(&self.input[start..])
+                            .map_err(|e| {
                                 self.error(LexicalErrorKind::NumParseError(
-                                    String::from(&self.input[start..]), e)))?),
-                        self.input.len()))
+                                    String::from(&self.input[start..]),
+                                    e,
+                                ))
+                            })?),
+                        self.input.len(),
+                    ))
                 }
             }
         }
 
-        
-        Ok((Token::U32(
-                u32::from_str(&self.input[start..end])
-                    .map_err(|e|
-                        self.error(LexicalErrorKind::NumParseError(
-                            String::from(&self.input[start..end]), e)))?),
-            end))
+        Ok((
+            Token::U32(
+                u32::from_str(&self.input[start..end]).map_err(|e| {
+                    self.error(LexicalErrorKind::NumParseError(
+                        String::from(&self.input[start..end]),
+                        e,
+                    ))
+                })?,
+            ),
+            end,
+        ))
     }
 
     fn operator(&mut self) -> Result<(Token<'input>, usize), InternalError> {
@@ -406,12 +441,13 @@ impl<'input> Lexer<'input> {
                     "?" => Ok((Token::Question, end)),
                     "??" => Ok((Token::LazyQuestion, end)),
 
-                    ".." | "==" | "||" | "&&" | "=>"
-                    | "<" | ">" | ">=" | "<=" | "!=" =>
-                        Err(self.error(LexicalErrorKind::ReservedButNotUsedOperator {
+                    ".." | "==" | "||" | "&&" | "=>" | "<" | ">" | ">="
+                    | "<=" | "!=" => Err(self.error(
+                        LexicalErrorKind::ReservedButNotUsedOperator {
                             op: String::from(&self.input[start..end]),
                             end: end,
-                        })),
+                        },
+                    )),
 
                     // unreachable
                     _ => Err(self.error(LexicalErrorKind::BadOperator)),
@@ -432,7 +468,7 @@ impl<'input> Iterator for Lexer<'input> {
                 '/' if self.look_check(|c| c == '*') => {
                     match self.block_comment() {
                         Err(e) => return Some(Err(e)),
-                        _ => {}, // FALLTHROUGH
+                        _ => {} // FALLTHROUGH
                     }
                     continue;
                 }
@@ -444,19 +480,22 @@ impl<'input> Iterator for Lexer<'input> {
 
                 '\'' => Self::spanned(start, self.raw_regex_lit()),
 
-                c if self.is_start_word_char(c) =>
-                    Self::spanned(start, self.word()),
+                c if self.is_start_word_char(c) => {
+                    Self::spanned(start, self.word())
+                }
 
-                c if self.is_num_char(c) =>
-                    Self::spanned(start, self.num()),
+                c if self.is_num_char(c) => Self::spanned(start, self.num()),
 
-                c if self.is_start_operator_char(c) =>
-                    Self::spanned(start, self.operator()),
+                c if self.is_start_operator_char(c) => {
+                    Self::spanned(start, self.operator())
+                }
 
                 c if c.is_whitespace() => continue,
 
-                c => Some(Err(self.error(LexicalErrorKind::UnexpectedChar(c)))),
-            }
+                c => Some(Err(self.error(
+                    LexicalErrorKind::UnexpectedChar(c),
+                ))),
+            };
         }
 
         None
@@ -494,7 +533,7 @@ mod tests {
 
                 assert!(!tokens.is_ok(), "tokens={:?}", tokens);
             }
-        }
+        };
     }
 
     macro_rules! lex_error_has {
@@ -516,7 +555,7 @@ mod tests {
                     Ok(_) => panic!("Should not lex."),
                 }
             }
-        }
+        };
     }
 
     macro_rules! spanned {
@@ -549,7 +588,7 @@ mod tests {
 
                 assert_eq!(s_spec, spans);
             }
-        }
+        };
     }
 
     macro_rules! tok_round_trip {
@@ -557,8 +596,10 @@ mod tests {
             #[test]
             fn $fn_name() {
                 let tok = Lexer::new($remake_source)
-                            .collect::<Result<Vec<_>, _>>()
-                            .unwrap()[0].1.clone();
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()[0]
+                    .1
+                    .clone();
                 assert_eq!($remake_source, &format!("{}", tok));
             }
         };
@@ -566,8 +607,10 @@ mod tests {
             #[test]
             fn $fn_name() {
                 let tok = Lexer::new($remake_source)
-                            .collect::<Result<Vec<_>, _>>()
-                            .unwrap()[0].1.clone();
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()[0]
+                    .1
+                    .clone();
                 assert_eq!($expected, &format!("{}", tok));
             }
         };
@@ -591,22 +634,42 @@ mod tests {
 
     tokens!(question_1_, "?", Token::Question);
     tokens!(question_2_, "??", Token::LazyQuestion);
-    tokens!(question_3_, "???", Token::LazyQuestion, Token::Question);
-    tokens!(question_4_, "????", Token::LazyQuestion, Token::LazyQuestion);
-    tokens!(question_5_, ")?", Token::CloseParen, Token::Question);
+    tokens!(
+        question_3_,
+        "???",
+        Token::LazyQuestion,
+        Token::Question
+    );
+    tokens!(
+        question_4_,
+        "????",
+        Token::LazyQuestion,
+        Token::LazyQuestion
+    );
+    tokens!(
+        question_5_,
+        ")?",
+        Token::CloseParen,
+        Token::Question
+    );
 
     tokens!(comma_1_, ",", Token::Comma);
     tokens!(comma_2_, ",,", Token::Comma, Token::Comma);
 
     tokens!(star_1_, " *", Token::Star);
 
-    tokens!(lazy_star_1_, "    *?  *  ", Token::LazyStar, Token::Star);
+    tokens!(
+        lazy_star_1_,
+        "    *?  *  ",
+        Token::LazyStar,
+        Token::Star
+    );
 
     tokens!(pipe_1_, " | ", Token::Pipe);
 
     tokens!(dot_1_, " . ", Token::Dot);
 
-    tokens!(equals_1_ , "=", Token::Equals);
+    tokens!(equals_1_, "=", Token::Equals);
 
     bad_token!(unknown_op_1_, " || ");
     bad_token!(unknown_op_2_, "   && ");
@@ -619,9 +682,15 @@ mod tests {
 
     tokens!(keywords_1_, "cap", Token::Cap);
     tokens!(keywords_2_, "cap as", Token::Cap, Token::As);
-    tokens!(keywords_3_, "as cap foo as bar",
-            Token::As, Token::Cap, Token::Id("foo"),
-            Token::As, Token::Id("bar"));
+    tokens!(
+        keywords_3_,
+        "as cap foo as bar",
+        Token::As,
+        Token::Cap,
+        Token::Id("foo"),
+        Token::As,
+        Token::Id("bar")
+    );
 
     //
     // identifiers
@@ -633,17 +702,32 @@ mod tests {
     // Regex literals
     //
 
-    tokens!(regex_lit_1_, "/foo/", Token::RegexLit("foo".to_string()));
-    tokens!(regex_lit_2_, r" /fo\/o/ ",
-        Token::RegexLit("fo/o".to_string()));
+    tokens!(
+        regex_lit_1_,
+        "/foo/",
+        Token::RegexLit("foo".to_string())
+    );
+    tokens!(
+        regex_lit_2_,
+        r" /fo\/o/ ",
+        Token::RegexLit("fo/o".to_string())
+    );
 
     bad_token!(regex_lit_3_, r" /fo\/ ");
     bad_token!(regex_lit_4_, r" /fo ");
 
-    tokens!(raw_regex_lit_1_, "'foo'", Token::RawRegexLit("foo"));
+    tokens!(
+        raw_regex_lit_1_,
+        "'foo'",
+        Token::RawRegexLit("foo")
+    );
 
     // raw regex don't have escape codes
-    tokens!(raw_regex_lit_2_, r" '\' ", Token::RawRegexLit(r"\"));
+    tokens!(
+        raw_regex_lit_2_,
+        r" '\' ",
+        Token::RawRegexLit(r"\")
+    );
 
     bad_token!(raw_regex_lit_3_, r" '' "); // no empty allowed
     bad_token!(raw_regex_lit_4_, r" 'blah  ");
@@ -651,51 +735,76 @@ mod tests {
     bad_token!(raw_regex_lit_5_, r"a'");
     bad_token!(raw_regex_lit_6_, r"'");
 
-
     //
     // Comments
     //
 
-    tokens!(comment_1_, r#"
+    tokens!(
+        comment_1_,
+        r#"
         // this is a comment
         // as is this
         this isnt
         // but this is
-    "#, Token::Id(r"this"), Token::Id("isnt"));
+    "#,
+        Token::Id(r"this"),
+        Token::Id("isnt")
+    );
 
-    tokens!(comment_2_, r#"
+    tokens!(
+        comment_2_,
+        r#"
         /* this is a comment */
         // as is this
         this isnt
         // but this is
-    "#, Token::Id(r"this"), Token::Id("isnt"));
+    "#,
+        Token::Id(r"this"),
+        Token::Id("isnt")
+    );
 
-    tokens!(comment_3_, r#"
+    tokens!(
+        comment_3_,
+        r#"
         /* this is a comment
         // as is this
         this isnt
         // but this is */ cap
-    "#, Token::Cap);
+    "#,
+        Token::Cap
+    );
 
-    tokens!(comment_4_, r#"
+    tokens!(
+        comment_4_,
+        r#"
         /**//**/ cap
-    "#, Token::Cap);
+    "#,
+        Token::Cap
+    );
 
-    tokens!(comment_5_, r#"
+    tokens!(
+        comment_5_,
+        r#"
         /* comments /* can
          *
          * /*
          *
          * be */ nested */ deeply
-        
         */ cap
-    "#, Token::Cap);
+    "#,
+        Token::Cap
+    );
 
     //
     // Numbers
     //
-    
-    tokens!(num_1_, r" 56 98 ", Token::U32(56), Token::U32(98));
+
+    tokens!(
+        num_1_,
+        r" 56 98 ",
+        Token::U32(56),
+        Token::U32(98)
+    );
     bad_token!(num_2_, r" 56999999999999999999999 ");
     tokens!(num_3_, r" 56,", Token::U32(56), Token::Comma);
     tokens!(num_4_, r" 5", Token::U32(5));
@@ -705,45 +814,49 @@ mod tests {
     // Spans
     //
 
-    spanned!(span_regex_lit_1_,
+    spanned!(
+        span_regex_lit_1_,
         "   /foo/    ",
-        "   ~~~~~    ");
+        "   ~~~~~    "
+    );
 
-    spanned!(span_regex_lit_2_,
+    spanned!(
+        span_regex_lit_2_,
         "  /foo/ + /bar/    ",
-        "  ~~~~~ ~ ~~~~~    ");
+        "  ~~~~~ ~ ~~~~~    "
+    );
 
-    spanned!(span_raw_regex_lit_1_,
+    spanned!(
+        span_raw_regex_lit_1_,
         "   'foo'    ",
-        "   ~~~~~    ");
+        "   ~~~~~    "
+    );
 
-    spanned!(span_plus_1_,
-        "   +  ",
-        "   ~  ");
+    spanned!(span_plus_1_, "   +  ", "   ~  ");
 
-    spanned!(span_id_1_,
-        " blah  ",
-        " ~~~~  ");
+    spanned!(span_id_1_, " blah  ", " ~~~~  ");
 
-    spanned!(span_comma_1_,
-        " , ",
-        " ~ ");
+    spanned!(span_comma_1_, " , ", " ~ ");
 
-    spanned!(span_comma_2_,
-        " 56, ",
-        " ~~~ ");
+    spanned!(span_comma_2_, " 56, ", " ~~~ ");
 
-    spanned!(span_comment_1_,
+    spanned!(
+        span_comment_1_,
         " (blah . ){56, /* 32, */ 9} ",
-        " ~~~~~ ~ ~~~~~           ~~ ");
+        " ~~~~~ ~ ~~~~~           ~~ "
+    );
 
-    spanned!(span_comment_2_,
+    spanned!(
+        span_comment_2_,
         " ( blah . ) { 56 , /* 32, */ 9 } ",
-        " ~ ~~~~ ~ ~ ~ ~~ ~           ~ ~ ");
+        " ~ ~~~~ ~ ~ ~ ~~ ~           ~ ~ "
+    );
 
-    spanned!(span_comment_3_,
+    spanned!(
+        span_comment_3_,
         " ( blah . ) { 56 , // 32, */ 9 } ",
-        " ~ ~~~~ ~ ~ ~ ~~ ~               ");
+        " ~ ~~~~ ~ ~ ~ ~~ ~               "
+    );
 
     //
     // Ensure that non-parameterized tokens are represented
@@ -775,7 +888,6 @@ mod tests {
     //
     // Specific lexical errors
     //
-
 
     lex_error_has!(reserved_1_, "&&", "Reserved operator");
     lex_error_has!(reserved_2_, "==", "Reserved operator");

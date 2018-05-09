@@ -1,7 +1,7 @@
 ///
 /// Utilities for manipulating regex ASTs
 ///
-use regex_syntax::ast::{Ast, Concat, Alternation, Group, GroupKind, Flags};
+use regex_syntax::ast::{Alternation, Ast, Concat, Flags, Group, GroupKind};
 use util::POISON_SPAN;
 
 //
@@ -26,27 +26,23 @@ pub fn concat(lhs: Box<Ast>, rhs: Box<Ast>) -> Box<Ast> {
             }))
         }
 
-        (Ast::Concat(ref lconcat), ref r) => {
-            Box::new(Ast::Concat(Concat {
-                span: lconcat.span.with_end(r.span().end),
-                asts: {
-                    let mut v = lconcat.asts.clone();
-                    v.push(r.clone());
-                    v
-                }
-            }))
-        }
+        (Ast::Concat(ref lconcat), ref r) => Box::new(Ast::Concat(Concat {
+            span: lconcat.span.with_end(r.span().end),
+            asts: {
+                let mut v = lconcat.asts.clone();
+                v.push(r.clone());
+                v
+            },
+        })),
 
-        (ref l, Ast::Concat(ref rconcat)) => {
-            Box::new(Ast::Concat(Concat {
-                span: l.span().with_end(rconcat.span.end),
-                asts: {
-                    let mut v = vec![l.clone()];
-                    v.extend(rconcat.asts.clone());
-                    v
-                }
-            }))
-        }
+        (ref l, Ast::Concat(ref rconcat)) => Box::new(Ast::Concat(Concat {
+            span: l.span().with_end(rconcat.span.end),
+            asts: {
+                let mut v = vec![l.clone()];
+                v.extend(rconcat.asts.clone());
+                v
+            },
+        })),
 
         (l, r) => {
             // The regex crate has not public dependency on regex-syntax,
@@ -64,13 +60,15 @@ pub fn concat(lhs: Box<Ast>, rhs: Box<Ast>) -> Box<Ast> {
             // then parse as:
             //
             //     alt( 'fooa', 'bar' )
-            // 
+            //
             // which is obviously wrong. The solution is to inject a bunch
             // of non-capturing groups. Sad bois.
             Box::new(Ast::Concat(Concat {
                 span: l.span().with_end(r.span().end),
-                asts: vec![noncapturing_group(Box::new(l)),
-                           noncapturing_group(Box::new(r))],
+                asts: vec![
+                    noncapturing_group(Box::new(l)),
+                    noncapturing_group(Box::new(r)),
+                ],
             }))
         }
     }
@@ -96,7 +94,7 @@ pub fn alt(lhs: Box<Ast>, rhs: Box<Ast>) -> Box<Ast> {
                     let mut v = lconcat.asts.clone();
                     v.push(r.clone());
                     v
-                }
+                },
             }))
         }
 
@@ -107,7 +105,7 @@ pub fn alt(lhs: Box<Ast>, rhs: Box<Ast>) -> Box<Ast> {
                     let mut v = vec![l.clone()];
                     v.extend(rconcat.asts.clone());
                     v
-                }
+                },
             }))
         }
 
@@ -133,4 +131,3 @@ pub fn noncapturing_group(ast: Box<Ast>) -> Ast {
         ast: ast,
     })
 }
-
