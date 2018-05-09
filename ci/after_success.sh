@@ -3,7 +3,7 @@
 # This runs only when a commit is pushed to master. It is responsible for
 # updating docs and computing coverage statistics.
 
-set -e
+set -ex
 
 if [ "$TRAVIS_RUST_VERSION" != "nightly" ] || [ "$TRAVIS_PULL_REQUEST" != "false" ] || [ "$TRAVIS_BRANCH" != "master" ]; then
   exit 0
@@ -14,12 +14,17 @@ env
 # Install kcov.
 tmp=$(mktemp -d)
 pushd "$tmp"
-wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz
-tar zxf master.tar.gz
-mkdir kcov-master/build
-cd kcov-master/build
+
+wget https://github.com/SimonKagstrom/kcov/archive/master.zip
+unzip master.zip
+mv kcov-master kcov
+mkdir kcov/build
+current=$(pwd)
+cd kcov/build
 cmake ..
 make
-make install DESTDIR="$tmp"
+export PATH="$(pwd)/src:${PATH}"
+cd ${current}
+
 popd
-PATH="$tmp/usr/local/bin:$PATH" ./ci/run-kcov --coveralls-id $TRAVIS_JOB_ID
+./ci/run-kcov --coveralls-id $TRAVIS_JOB_ID

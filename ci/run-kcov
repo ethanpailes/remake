@@ -1,8 +1,7 @@
 #!/bin/bash
 
-set -e
+set -ex
 
-tmpdir=$(mktemp -d)
 coveralls_id=
 
 while true; do
@@ -20,14 +19,14 @@ done
 # make sure the test executable really exists
 cargo test --verbose --no-run
 
-kcov \
+exe=$(find ./target/debug -executable -wholename "./target/debug/remake-*" | head -n1)
+
+KCOV_ARGS=""
+if [ -n "$coveralls_id" ]; then
+    KCOV_ARGS="--coveralls-id=$coveralls_id"
+fi
+kcov ${KCOV_ARGS} \
     --verify \
     --include-pattern '/remake/src/' \
-    "$tmpdir/remake" \
-    $(find ./target/debug -executable -wholename "./target/debug/remake-*" | head -n1)
-
-if [ -n "$coveralls_id" ]; then
-  kcov --verify --coveralls-id=$coveralls_id --merge target/cov "$tmpdir"/*
-else
-  kcov --verify --merge target/cov "$tmpdir"/*
-fi
+    target/cov \
+    ${exe}

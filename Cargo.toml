@@ -3,6 +3,15 @@ name = "remake"
 version = "0.1.0"
 authors = ["Ethan Pailes <ethanpailes@gmail.com>"]
 
+[badges]
+travis-ci = { repository = "ethanpailes/remake" }
+
+[features]
+# A blanket feature that governs whether unstable features are enabled or not.
+# Unstable features are disabled by default, and typically rely on unstable
+# features in rustc itself.
+unstable = []
+
 [dependencies]
 regex = "1.0.0"
 regex-syntax = "0.6"
