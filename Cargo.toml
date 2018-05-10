@@ -2,6 +2,8 @@
 name = "remake"
 version = "0.1.0"
 authors = ["Ethan Pailes <ethanpailes@gmail.com>"]
+readme = "README.md"
+licence = "MIT/Apache-2.0"
 
 [badges]
 travis-ci = { repository = "ethanpailes/remake" }

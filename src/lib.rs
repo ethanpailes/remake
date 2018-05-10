@@ -1,3 +1,11 @@
+// Copyright 2018 Ethan Pailes.
+//
+// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+// option. This file may not be copied, modified, or distributed
+// except according to those terms.
+
 /*!
 This crate provides a library for writing maintainable regular expressions.
 When regex are small, their terse syntax is nice because it allows you
@@ -564,10 +572,6 @@ impl fmt::Debug for Error {
         Ok(())
     }
 }
-
-// TODO(ethan): Docs.
-//      - README.md
-// TODO(ethan): Release!!! (don't talk about it until we have lambdas though).
 
 #[cfg(test)]
 mod tests {
