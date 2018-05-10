@@ -3,7 +3,19 @@ name = "remake"
 version = "0.1.0"
 authors = ["Ethan Pailes <ethanpailes@gmail.com>"]
 readme = "README.md"
-licence = "MIT/Apache-2.0"
+license = "MIT/Apache-2.0"
+repository = "https://github.com/ethanpailes/remake"
+documentation = "https://docs.rs/remake"
+homepage = "https://github.com/ethanpailes/remake"
+description = """
+A library for writing maintainable regex and managing symbol soup.
+"""
+categories = ["text-processing"]
+exclude = [
+    "rustfmt.toml",
+    ".travis.yml",
+    "ci/*",
+]
 
 [badges]
 travis-ci = { repository = "ethanpailes/remake" }
@@ -12,6 +24,8 @@ travis-ci = { repository = "ethanpailes/remake" }
 # A blanket feature that governs whether unstable features are enabled or not.
 # Unstable features are disabled by default, and typically rely on unstable
 # features in rustc itself.
+#
+# For now we don't use this feature.
 unstable = []
 
 [dependencies]

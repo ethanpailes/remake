@@ -15,6 +15,11 @@ sized pieces it is easy.
 [![Coverage Status](https://coveralls.io/repos/github/ethanpailes/remake/badge.svg?branch=master)](https://coveralls.io/github/ethanpailes/remake?branch=master)
 [![Build Status](https://travis-ci.org/ethanpailes/remake.svg?branch=master)](https://travis-ci.org/ethanpailes/remake)
 
+### Documentation
+
+The [module docs](https://docs.rs/remake) contain a full explanation
+of the remake language with inline examples.
+
 ### Usage
 
 Add this to your `Cargo.toml`:
