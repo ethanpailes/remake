@@ -74,7 +74,7 @@ assert!(re.is_match("a regex with a / slash"));
 ```
 
 A common issue when writing a regex is not knowing if a particular
-sigil has special meaning in a regex. Even if you know that '+' is
+sigil has special meaning. Even if you know that '+' is
 special, it can be easy to forget to escape it, especially
 as your regex grows in complexity. To help with these situations,
 remake provides a second type of regex literal using single quotes.
@@ -230,7 +230,7 @@ assert_eq!(&caps[2], "baz");
 Note that the index of unnamed capture groups depends on their
 order in the final expression that is generated, not where they
 are defined in a particular piece of remake source. The process of
-index assignment is not particularly implicit, so it is good practice
+index assignment is not always obvious, so it is good practice
 to use named capture groups as regex grow large.
 
 # Block Expressions
