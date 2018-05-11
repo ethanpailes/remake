@@ -14,6 +14,9 @@ sized pieces it is easy.
 
 [![Coverage Status](https://coveralls.io/repos/github/ethanpailes/remake/badge.svg?branch=master)](https://coveralls.io/github/ethanpailes/remake?branch=master)
 [![Build Status](https://travis-ci.org/ethanpailes/remake.svg?branch=master)](https://travis-ci.org/ethanpailes/remake)
+[![](http://meritbadge.herokuapp.com/remake)](https://crates.io/crates/remake)
+[![Docs](https://docs.rs/remake/badge.svg)](https://docs.rs/remake)
+
 
 ### Documentation
 
