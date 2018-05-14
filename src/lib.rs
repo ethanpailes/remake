@@ -336,6 +336,7 @@ mod lex;
 mod operators;
 mod parse;
 mod util;
+mod exec;
 
 //
 // I want the eventual interface to look something like:

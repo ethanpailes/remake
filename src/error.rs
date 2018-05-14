@@ -105,8 +105,17 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
                 }
                 write!(f, "\n")?;
             }
+
             &NameError { ref name } => {
                 writeln!(f, "NameError: unknown variable '{}'.", name)?;
+            }
+            &TypeError { ref expected, ref actual } => {
+                writeln!(f, "TypeError: must be {}, not {}", expected, actual)?;
+            }
+            &FinalValueNotRegex { ref actual } => {
+                writeln!(f,
+                    "remake expressions must evaluate to a regex not a {}",
+                    actual)?;
             }
         }
 
@@ -121,8 +130,10 @@ pub enum ErrorKind {
     //
     LexicalError(lex::LexicalErrorKind),
 
-    // repackaged parse errors so that we can highlight them
+    //
+    // Repackaged parse errors so that we can highlight them
     // in the source nicely.
+    //
     InvalidToken,
     UnrecognizedToken {
         token: String,
@@ -138,6 +149,13 @@ pub enum ErrorKind {
     //
     NameError {
         name: String,
+    },
+    TypeError {
+        actual: String,
+        expected: String,
+    },
+    FinalValueNotRegex {
+        actual: String,
     },
 }
 
