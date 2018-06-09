@@ -28,7 +28,7 @@ extern {
 
         "(" => lex::Token::OpenParen,
         ")" => lex::Token::CloseParen,
-        
+
         "{" => lex::Token::OpenCurly,
         "}" => lex::Token::CloseCurly,
         "}?" => lex::Token::LazyCloseCurly,
