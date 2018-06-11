@@ -332,11 +332,11 @@ extern crate regex_syntax;
 
 mod ast;
 mod error;
+mod exec;
 mod lex;
 mod operators;
 mod parse;
 mod util;
-mod exec;
 
 //
 // I want the eventual interface to look something like:

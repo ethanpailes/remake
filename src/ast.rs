@@ -32,10 +32,11 @@ impl Expr {
         match exec::eval(self)? {
             exec::Value::Regex(re) => Ok(re),
             val => Err(InternalError::new(
-                        ErrorKind::FinalValueNotRegex { 
-                            actual: val.type_of().to_string(),
-                        },
-                        span))
+                ErrorKind::FinalValueNotRegex {
+                    actual: val.type_of().to_string(),
+                },
+                span,
+            )),
         }
     }
 }
@@ -45,9 +46,12 @@ pub enum ExprKind {
     BinOp(Box<Expr>, BOp, Box<Expr>),
     UnaryOp(UOp, Box<Expr>),
     Capture(Box<Expr>, Option<String>),
-    RegexLiteral(Box<regex_syntax::ast::Ast>),
     Block(Vec<Statement>, Box<Expr>),
     Var(String),
+
+    RegexLiteral(Box<regex_syntax::ast::Ast>),
+    IntLiteral(i64),
+    FloatLiteral(f64),
 
     /// A poison expression is never valid, but it lets us avoid copying
     /// the source string and still please the borrow checker.

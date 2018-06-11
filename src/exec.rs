@@ -9,10 +9,10 @@
 use std::collections::HashMap;
 
 use regex_syntax;
-use regex_syntax::ast::{RepetitionKind, GroupKind};
+use regex_syntax::ast::{GroupKind, RepetitionKind};
 
-use error::{InternalError, ErrorKind};
-use ast::{Expr, ExprKind, BOp, UOp, Statement, StatementKind};
+use ast::{BOp, Expr, ExprKind, Statement, StatementKind, UOp};
+use error::{ErrorKind, InternalError};
 use operators;
 use operators::noncapturing_group;
 use util::POISON_SPAN;
@@ -24,12 +24,16 @@ use util::POISON_SPAN;
 #[derive(Debug, Clone)]
 pub enum Value {
     Regex(Box<regex_syntax::ast::Ast>),
+    Int64(i64),
+    Float64(f64),
 }
 
 impl Value {
     pub fn type_of(&self) -> &str {
         match self {
             &Value::Regex(_) => "regex",
+            &Value::Int64(_) => "int",
+            &Value::Float64(_) => "float",
         }
     }
 }
@@ -41,46 +45,42 @@ pub fn eval(expr: Expr) -> Result<Value, InternalError> {
 /// Evaluate an expression and return the inner type of the
 /// resulting value if it matches the given type.
 macro_rules! expect_type {
-    ($env:expr, $expr:expr, "regex") => {{
+    ($env:expr, $expr:expr,"regex") => {{
         let e = $expr;
         let expr_span = e.span.clone();
         match eval_($env, e)? {
             Value::Regex(re) => re,
-            val => return Err(InternalError::new(
-                ErrorKind::TypeError {
-                    actual: val.type_of().to_string(),
-                    expected: "regex".to_string(),
-                },
-                expr_span,
-            ))
+            val => {
+                return Err(InternalError::new(
+                    ErrorKind::TypeError {
+                        actual: val.type_of().to_string(),
+                        expected: "regex".to_string(),
+                    },
+                    expr_span,
+                ))
+            }
         }
-    }}
+    }};
 }
 
-fn eval_(env: &mut EvalEnv, expr: Expr)
-    -> Result<Value, InternalError>
-{
+fn eval_(env: &mut EvalEnv, expr: Expr) -> Result<Value, InternalError> {
     match expr.kind {
         ExprKind::RegexLiteral(r) => Ok(Value::Regex(r)),
 
-        ExprKind::BinOp(lhs, op, rhs) => {
-            match op {
-                BOp::Concat => Ok(Value::Regex(operators::concat(
-                    expect_type!(env, *lhs, "regex"),
-                    expect_type!(env, *rhs, "regex"),
-                ))),
-                BOp::Alt => {
-                    Ok(Value::Regex(operators::alt(
-                        expect_type!(env, *lhs, "regex"),
-                        expect_type!(env, *rhs, "regex"),
-                    )))
-                }
-            }
-        }
+        ExprKind::BinOp(lhs, op, rhs) => match op {
+            BOp::Concat => Ok(Value::Regex(operators::concat(
+                expect_type!(env, *lhs, "regex"),
+                expect_type!(env, *rhs, "regex"),
+            ))),
+            BOp::Alt => Ok(Value::Regex(operators::alt(
+                expect_type!(env, *lhs, "regex"),
+                expect_type!(env, *rhs, "regex"),
+            ))),
+        },
 
         ExprKind::UnaryOp(op, e) => match op {
-            UOp::RepeatZeroOrMore(greedy) => {
-                Ok(Value::Regex(Box::new(regex_syntax::ast::Ast::Repetition(
+            UOp::RepeatZeroOrMore(greedy) => Ok(Value::Regex(Box::new(
+                regex_syntax::ast::Ast::Repetition(
                     regex_syntax::ast::Repetition {
                         span: POISON_SPAN,
                         op: regex_syntax::ast::RepetitionOp {
@@ -88,13 +88,14 @@ fn eval_(env: &mut EvalEnv, expr: Expr)
                             kind: RepetitionKind::ZeroOrMore,
                         },
                         greedy: greedy,
-                        ast: Box::new(noncapturing_group(
-                                expect_type!(env, *e, "regex"))),
+                        ast: Box::new(noncapturing_group(expect_type!(
+                            env, *e, "regex"
+                        ))),
                     },
-                ))))
-            }
-            UOp::RepeatOneOrMore(greedy) => {
-                Ok(Value::Regex(Box::new(regex_syntax::ast::Ast::Repetition(
+                ),
+            ))),
+            UOp::RepeatOneOrMore(greedy) => Ok(Value::Regex(Box::new(
+                regex_syntax::ast::Ast::Repetition(
                     regex_syntax::ast::Repetition {
                         span: POISON_SPAN,
                         op: regex_syntax::ast::RepetitionOp {
@@ -102,13 +103,14 @@ fn eval_(env: &mut EvalEnv, expr: Expr)
                             kind: RepetitionKind::OneOrMore,
                         },
                         greedy: greedy,
-                        ast: Box::new(noncapturing_group(
-                                expect_type!(env, *e, "regex"))),
+                        ast: Box::new(noncapturing_group(expect_type!(
+                            env, *e, "regex"
+                        ))),
                     },
-                ))))
-            }
-            UOp::RepeatZeroOrOne(greedy) => {
-                Ok(Value::Regex(Box::new(regex_syntax::ast::Ast::Repetition(
+                ),
+            ))),
+            UOp::RepeatZeroOrOne(greedy) => Ok(Value::Regex(Box::new(
+                regex_syntax::ast::Ast::Repetition(
                     regex_syntax::ast::Repetition {
                         span: POISON_SPAN,
                         op: regex_syntax::ast::RepetitionOp {
@@ -116,13 +118,14 @@ fn eval_(env: &mut EvalEnv, expr: Expr)
                             kind: RepetitionKind::ZeroOrOne,
                         },
                         greedy: greedy,
-                        ast: Box::new(noncapturing_group(
-                                expect_type!(env, *e, "regex"))),
+                        ast: Box::new(noncapturing_group(expect_type!(
+                            env, *e, "regex"
+                        ))),
                     },
-                ))))
-            }
-            UOp::RepeatRange(greedy, range) => {
-                Ok(Value::Regex(Box::new(regex_syntax::ast::Ast::Repetition(
+                ),
+            ))),
+            UOp::RepeatRange(greedy, range) => Ok(Value::Regex(Box::new(
+                regex_syntax::ast::Ast::Repetition(
                     regex_syntax::ast::Repetition {
                         span: POISON_SPAN,
                         op: regex_syntax::ast::RepetitionOp {
@@ -130,24 +133,25 @@ fn eval_(env: &mut EvalEnv, expr: Expr)
                             kind: RepetitionKind::Range(range),
                         },
                         greedy: greedy,
-                        ast: Box::new(noncapturing_group(
-                                expect_type!(env, *e, "regex"))),
+                        ast: Box::new(noncapturing_group(expect_type!(
+                            env, *e, "regex"
+                        ))),
                     },
-                ))))
-            }
+                ),
+            ))),
         },
 
         ExprKind::Capture(e, name) => Ok(Value::Regex(Box::new(
             regex_syntax::ast::Ast::Group(regex_syntax::ast::Group {
                 span: POISON_SPAN,
                 kind: match name {
-                    Some(n) => GroupKind::CaptureName(
-                        regex_syntax::ast::CaptureName {
+                    Some(n) => {
+                        GroupKind::CaptureName(regex_syntax::ast::CaptureName {
                             span: POISON_SPAN,
                             name: n,
                             index: BOGUS_GROUP_INDEX,
-                        },
-                    ),
+                        })
+                    }
                     None => GroupKind::CaptureIndex(BOGUS_GROUP_INDEX),
                 },
                 ast: expect_type!(env, *e, "regex"),
@@ -169,12 +173,15 @@ fn eval_(env: &mut EvalEnv, expr: Expr)
         ExprKind::Var(var) => {
             let span = expr.span;
             env.lookup(var)
-               .map_err(|e| InternalError::new(e, span))
+                .map_err(|e| InternalError::new(e, span))
         }
+
+        ExprKind::IntLiteral(i) => Ok(Value::Int64(i)),
+
+        ExprKind::FloatLiteral(f) => Ok(Value::Float64(f)),
 
         ExprKind::ExprPoison => panic!("Bug in remake."),
     }
-
 }
 
 fn exec(env: &mut EvalEnv, s: Statement) -> Result<(), InternalError> {
@@ -233,3 +240,73 @@ impl EvalEnv {
 /// way to thread the group index through its parser. This way we can
 /// just ignore the whole problem.
 const BOGUS_GROUP_INDEX: u32 = 0;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lex;
+    use parse::BlockBodyParser;
+
+    /// An equality function for remake runtime values.
+    ///
+    /// We give this guys an awkward name rather than just adding
+    /// an Eq impl to avoid taking a position about the right way to
+    /// compare floating point values in all cases. For testing this
+    /// function is good enough.
+    fn test_eq(lhs: &Value, rhs: &Value) -> bool {
+        match (lhs, rhs) {
+            (&Value::Regex(ref l), &Value::Regex(ref r)) => *l == *r,
+            (&Value::Int64(ref l), &Value::Int64(ref r)) => *l == *r,
+
+            // stupid fixed-epsilon test
+            (&Value::Float64(ref l), &Value::Float64(ref r)) => {
+                (*l - *r).abs() < 0.0000001
+            }
+
+            (_, _) => false,
+        }
+    }
+
+    macro_rules! eval_to {
+        ($test_name:ident, $remake_src:expr, $expected_value:expr) => {
+            #[test]
+            fn $test_name() {
+                let parser = BlockBodyParser::new();
+                let lexer = lex::Lexer::new($remake_src);
+                let expr = eval(parser.parse(lexer).unwrap()).unwrap();
+
+                assert!(
+                    test_eq(&$expected_value, &expr),
+                    "The expr '{}' does not evaluate to {:?}",
+                    $remake_src,
+                    $expected_value
+                );
+            }
+        };
+    }
+
+    macro_rules! eval_fail {
+        ($test_name:ident, $remake_src:expr) => {
+            #[test]
+            fn $test_name() {
+                let parser = BlockBodyParser::new();
+                let lexer = lex::Lexer::new($remake_src);
+                let expr = eval(parser.parse(lexer).unwrap());
+
+                assert!(
+                    !expr.is_ok(),
+                    "The expr '{}' should not evaulate to anything",
+                    $remake_src
+                );
+            }
+        };
+    }
+
+    eval_to!(basic_int_1_, " 5", Value::Int64(5));
+    eval_to!(basic_int_2_, " 8  ", Value::Int64(8));
+
+    eval_to!(basic_float_1_, " 5.0   ", Value::Float64(5.0));
+    eval_to!(basic_float_2_, " 5.9", Value::Float64(5.9));
+
+    eval_fail!(basic_float_3_, " 5 .9");
+}

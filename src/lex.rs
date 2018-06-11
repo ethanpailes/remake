@@ -8,7 +8,7 @@
 
 use std::convert::From;
 use std::fmt;
-use std::num::ParseIntError;
+use std::num::{ParseFloatError, ParseIntError};
 use std::str::{CharIndices, FromStr};
 
 use regex::Regex;
@@ -19,11 +19,12 @@ use error::InternalError;
 
 pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 pub enum Token<'input> {
     RegexLit(String),
     RawRegexLit(&'input str),
-    U32(u32),
+    IntLit(i64),
+    FloatLit(f64),
     Id(&'input str),
 
     // Operators
@@ -55,7 +56,9 @@ impl<'input> fmt::Display for Token<'input> {
         match self {
             &Token::RegexLit(ref re_src) => write!(f, "/{}/", re_src),
             &Token::RawRegexLit(ref re_src) => write!(f, "'{}'", re_src),
-            &Token::U32(ref num) => write!(f, "{}", num),
+            &Token::IntLit(ref num) => write!(f, "{}", num),
+            &Token::FloatLit(ref num) => write!(f, "{}", num),
+
             &Token::Id(ref id) => write!(f, "identifier: {}", id),
 
             // Operators
@@ -93,7 +96,8 @@ pub enum LexicalErrorKind {
     BadIdentifier,
     BadOperator,
 
-    NumParseError(String, ParseIntError),
+    IntParseError(String, ParseIntError),
+    FloatParseError(String, Option<ParseFloatError>),
     ReservedButNotUsedOperator { op: String, end: usize },
     ReservedButNotUsedKeyword { word: String, end: usize },
     UnclosedBlockComment { nest_level: usize },
@@ -115,10 +119,20 @@ impl<'input> fmt::Display for LexicalErrorKind {
             &LexicalErrorKind::BadIdentifier => write!(f, "Bad identifier."),
             &LexicalErrorKind::BadOperator => write!(f, "Bad operator."),
 
-            &LexicalErrorKind::NumParseError(ref num_str, ref err) => write!(
+            &LexicalErrorKind::IntParseError(ref num_str, ref err) => write!(
                 f,
                 "Error parsing '{}' as a number: {}.",
                 num_str, err
+            ),
+
+            &LexicalErrorKind::FloatParseError(ref num_str, ref err) => write!(
+                f,
+                "Error parsing '{}' as a number{}.",
+                num_str,
+                match err {
+                    &Some(ref e) => format!(": {}", e),
+                    &None => "".to_string(),
+                }
             ),
 
             &LexicalErrorKind::ReservedButNotUsedOperator {
@@ -382,37 +396,60 @@ impl<'input> Lexer<'input> {
 
     fn num(&mut self) -> Result<(Token<'input>, usize), InternalError> {
         let start = self.at;
+        let mut saw_dot = false;
+        let mut just_saw_dot = false;
 
         let mut end = start + 1;
-        while self.look_check(|c| self.is_num_char(c)) {
+        while self.look_check(|c| self.is_num_char(c) || c == '.') {
             match self.bump() {
-                Some((idx, _)) => end = idx + 1,
+                Some((idx, c)) => {
+                    if c == '.' {
+                        saw_dot = true;
+                        just_saw_dot = true;
+                    } else {
+                        just_saw_dot = false;
+                    }
+                    end = idx + 1
+                }
                 None => {
-                    return Ok((
-                        Token::U32(u32::from_str(&self.input[start..])
-                            .map_err(|e| {
-                                self.error(LexicalErrorKind::NumParseError(
-                                    String::from(&self.input[start..]),
-                                    e,
-                                ))
-                            })?),
-                        self.input.len(),
-                    ))
+                    end = self.input.len();
+                    break;
                 }
             }
         }
 
-        Ok((
-            Token::U32(
-                u32::from_str(&self.input[start..end]).map_err(|e| {
-                    self.error(LexicalErrorKind::NumParseError(
-                        String::from(&self.input[start..end]),
-                        e,
-                    ))
-                })?,
-            ),
-            end,
-        ))
+        // we can't end with a dot
+        if just_saw_dot {
+            return Err(self.error(LexicalErrorKind::FloatParseError(
+                String::from(&self.input[start..end]),
+                None,
+            )));
+        }
+
+        Ok(if saw_dot {
+            (
+                Token::FloatLit(f64::from_str(&self.input[start..end])
+                    .map_err(|e| {
+                        self.error(LexicalErrorKind::FloatParseError(
+                            String::from(&self.input[start..end]),
+                            Some(e),
+                        ))
+                    })?),
+                end,
+            )
+        } else {
+            (
+                Token::IntLit(i64::from_str(&self.input[start..end]).map_err(
+                    |e| {
+                        self.error(LexicalErrorKind::IntParseError(
+                            String::from(&self.input[start..end]),
+                            e,
+                        ))
+                    },
+                )?),
+                end,
+            )
+        })
     }
 
     fn operator(&mut self) -> Result<(Token<'input>, usize), InternalError> {
@@ -514,6 +551,50 @@ impl<'input> Iterator for Lexer<'input> {
 mod tests {
     use super::*;
 
+    /// An equality function for remake runtime values.
+    ///
+    /// We give this guys an awkward name rather than just adding
+    /// an Eq impl to avoid taking a position about the right way to
+    /// compare floating point values in all cases. For testing this
+    /// function is good enough.
+    fn test_eq(lhs: &Token, rhs: &Token) -> bool {
+        match (lhs, rhs) {
+            (&Token::RegexLit(ref l), &Token::RegexLit(ref r)) => *l == *r,
+            (&Token::RawRegexLit(ref l), &Token::RawRegexLit(ref r)) => {
+                *l == *r
+            }
+            (&Token::IntLit(ref l), &Token::IntLit(ref r)) => *l == *r,
+            (&Token::Id(ref l), &Token::Id(ref r)) => *l == *r,
+
+            (&Token::OpenParen, &Token::OpenParen) => true,
+            (&Token::CloseParen, &Token::CloseParen) => true,
+            (&Token::OpenCurly, &Token::OpenCurly) => true,
+            (&Token::LazyCloseCurly, &Token::LazyCloseCurly) => true,
+            (&Token::CloseCurly, &Token::CloseCurly) => true,
+            (&Token::LazyStar, &Token::LazyStar) => true,
+            (&Token::Star, &Token::Star) => true,
+            (&Token::LazyPlus, &Token::LazyPlus) => true,
+            (&Token::Plus, &Token::Plus) => true,
+            (&Token::Comma, &Token::Comma) => true,
+            (&Token::Pipe, &Token::Pipe) => true,
+            (&Token::Dot, &Token::Dot) => true,
+            (&Token::Equals, &Token::Equals) => true,
+            (&Token::Question, &Token::Question) => true,
+            (&Token::LazyQuestion, &Token::LazyQuestion) => true,
+            (&Token::Semi, &Token::Semi) => true,
+            (&Token::As, &Token::As) => true,
+            (&Token::Cap, &Token::Cap) => true,
+            (&Token::Let, &Token::Let) => true,
+
+            // stupid fixed-epsilon test
+            (&Token::FloatLit(ref l), &Token::FloatLit(ref r)) => {
+                (*l - *r).abs() < 0.0000001
+            }
+
+            (_, _) => false,
+        }
+    }
+
     macro_rules! tokens {
         ($fn_name:ident, $remake_source:expr, $( $token:expr ),*) => {
             #[test]
@@ -524,9 +605,10 @@ mod tests {
 
                 let expected_tokens = vec![$($token),*];
 
-                assert_eq!(
-                    expected_tokens,
-                    tokens.expect("the source to lex."));
+                assert!(
+                    expected_tokens.iter().zip(
+                        tokens.expect("the source to lex.").iter())
+                        .all(|(r, l)| test_eq(r, l)));
             }
         }
     }
@@ -558,9 +640,9 @@ mod tests {
                             format!("{}", err.overlay($remake_source));
                         // assert_eq!($lex_err, err_str);
 
-                        assert!(err_str.contains($lex_err));
+                        assert!(err_str.contains($lex_err), err_str);
                     }
-                    Ok(_) => panic!("Should not lex."),
+                    Ok(ts) => panic!("Should not lex. ts={:?}", ts),
                 }
             }
         };
@@ -810,13 +892,13 @@ mod tests {
     tokens!(
         num_1_,
         r" 56 98 ",
-        Token::U32(56),
-        Token::U32(98)
+        Token::IntLit(56),
+        Token::IntLit(98)
     );
     bad_token!(num_2_, r" 56999999999999999999999 ");
-    tokens!(num_3_, r" 56,", Token::U32(56), Token::Comma);
-    tokens!(num_4_, r" 5", Token::U32(5));
-    tokens!(num_5_, r" 5 ", Token::U32(5));
+    tokens!(num_3_, r" 56,", Token::IntLit(56), Token::Comma);
+    tokens!(num_4_, r" 5", Token::IntLit(5));
+    tokens!(num_5_, r" 5 ", Token::IntLit(5));
 
     //
     // Spans
@@ -908,4 +990,12 @@ mod tests {
     lex_error_has!(reserved_9_, "<=", "Reserved operator");
     lex_error_has!(reserved_10_, "!=", "Reserved operator");
 
+    lex_error_has!(bad_float_1_, " 5. 0", "as a number");
+    tokens!(
+        bad_float_2_,
+        " .5",
+        Token::Dot,
+        Token::IntLit(5)
+    );
+    spanned!(bad_float_3_, " 5 . 0", " ~ ~ ~");
 }

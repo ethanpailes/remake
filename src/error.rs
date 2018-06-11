@@ -109,13 +109,22 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
             &NameError { ref name } => {
                 writeln!(f, "NameError: unknown variable '{}'.", name)?;
             }
-            &TypeError { ref expected, ref actual } => {
-                writeln!(f, "TypeError: must be {}, not {}", expected, actual)?;
+            &TypeError {
+                ref expected,
+                ref actual,
+            } => {
+                writeln!(
+                    f,
+                    "TypeError: must be {}, not {}",
+                    expected, actual
+                )?;
             }
             &FinalValueNotRegex { ref actual } => {
-                writeln!(f,
+                writeln!(
+                    f,
                     "remake expressions must evaluate to a regex not a {}",
-                    actual)?;
+                    actual
+                )?;
             }
         }
 

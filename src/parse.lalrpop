@@ -23,7 +23,8 @@ extern {
     enum lex::Token<'input> {
         "regex literal" => lex::Token::RegexLit(<String>),
         "raw regex literal" => lex::Token::RawRegexLit(<&'input str>),
-        "u32" => lex::Token::U32(<u32>),
+        "int" => lex::Token::IntLit(<i64>),
+        "float" => lex::Token::FloatLit(<f64>),
         "identifier" => lex::Token::Id(<&'input str>),
 
         "(" => lex::Token::OpenParen,
@@ -116,25 +117,25 @@ ExprKind3: ExprKind = {
     <e:Expr3> "?" => ExprKind::UnaryOp(UOp::RepeatZeroOrOne(true), e),
     <e:Expr3> "??" => ExprKind::UnaryOp(UOp::RepeatZeroOrOne(false), e),
 
-    <e:Expr3> "{" <i:Int32> "}" =>
+    <e:Expr3> "{" <i:"int"> "}" =>
         ExprKind::UnaryOp(UOp::RepeatRange(
-            false, RepetitionRange::Exactly(i)), e),
-    <e:Expr3> "{" <i:Int32> "," "}" =>
+            false, RepetitionRange::Exactly(i as u32)), e),
+    <e:Expr3> "{" <i:"int"> "," "}" =>
         ExprKind::UnaryOp(UOp::RepeatRange(
-            false, RepetitionRange::AtLeast(i)), e),
-    <e:Expr3> "{" <i1:Int32> "," <i2:Int32> "}" =>
+            false, RepetitionRange::AtLeast(i as u32)), e),
+    <e:Expr3> "{" <i1:"int"> "," <i2:"int"> "}" =>
         ExprKind::UnaryOp(UOp::RepeatRange(
-            false, RepetitionRange::Bounded(i1, i2)), e),
+            false, RepetitionRange::Bounded(i1 as u32, i2 as u32)), e),
 
-    <e:Expr3> "{" <i:Int32> "}?" =>
+    <e:Expr3> "{" <i:"int"> "}?" =>
         ExprKind::UnaryOp(UOp::RepeatRange(
-            true, RepetitionRange::Exactly(i)), e),
-    <e:Expr3> "{" <i:Int32> "," "}?" =>
+            true, RepetitionRange::Exactly(i as u32)), e),
+    <e:Expr3> "{" <i:"int"> "," "}?" =>
         ExprKind::UnaryOp(UOp::RepeatRange(
-            true, RepetitionRange::AtLeast(i)), e),
-    <e:Expr3> "{" <i1:Int32> "," <i2:Int32> "}?" =>
+            true, RepetitionRange::AtLeast(i as u32)), e),
+    <e:Expr3> "{" <i1:"int"> "," <i2:"int"> "}?" =>
         ExprKind::UnaryOp(UOp::RepeatRange(
-            true, RepetitionRange::Bounded(i1, i2)), e),
+            true, RepetitionRange::Bounded(i1 as u32, i2 as u32)), e),
 
     ExprKind4,
 };
@@ -146,11 +147,9 @@ Expr4: Box<Expr> = {
 ExprKind4: ExprKind = {
     <r:RegexLiteral> => ExprKind::RegexLiteral(r),
     <var:Id> => ExprKind::Var(var),
+    <int:"int"> => ExprKind::IntLiteral(int),
+    <float:"float"> => ExprKind::FloatLiteral(float),
     "(" <ExprKind0> ")",
-};
-
-Int32: u32 = {
-    <n:"u32"> => n
 };
 
 Id: String = {
