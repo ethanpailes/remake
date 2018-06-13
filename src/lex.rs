@@ -25,6 +25,7 @@ pub enum Token<'input> {
     RawRegexLit(&'input str),
     IntLit(i64),
     FloatLit(f64),
+    StringLit(String),
     Id(&'input str),
 
     // Operators
@@ -58,6 +59,7 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::RawRegexLit(ref re_src) => write!(f, "'{}'", re_src),
             &Token::IntLit(ref num) => write!(f, "{}", num),
             &Token::FloatLit(ref num) => write!(f, "{}", num),
+            &Token::StringLit(ref s) => write!(f, "\"{}\"", s),
 
             &Token::Id(ref id) => write!(f, "identifier: {}", id),
 
@@ -92,6 +94,8 @@ pub enum LexicalErrorKind {
     UnclosedRegexLiteral,
     UnclosedRawRegexLiteral,
     EmptyRawRegexLiteral,
+    UnclosedStringLiteral,
+    UnknownEscapeSequence,
 
     BadIdentifier,
     BadOperator,
@@ -115,6 +119,12 @@ impl<'input> fmt::Display for LexicalErrorKind {
             }
             &LexicalErrorKind::EmptyRawRegexLiteral => {
                 write!(f, "Empty raw regex literal.")
+            }
+            &LexicalErrorKind::UnclosedStringLiteral => {
+                write!(f, "Unclosed string literal.")
+            }
+            &LexicalErrorKind::UnknownEscapeSequence => {
+                write!(f, "Unknown escape sequence.")
             }
             &LexicalErrorKind::BadIdentifier => write!(f, "Bad identifier."),
             &LexicalErrorKind::BadOperator => write!(f, "Bad operator."),
@@ -325,6 +335,30 @@ impl<'input> Lexer<'input> {
         Err(self.error(LexicalErrorKind::UnclosedRegexLiteral))
     }
 
+    fn string_lit(&mut self) -> Result<(Token<'input>, usize), InternalError> {
+        let mut s = String::new();
+
+        while let Some((idx, c)) = self.bump() {
+            match c {
+                '\\' => {
+                    if let Some((_, c_next)) = self.bump() {
+                        if c_next == '"' || c_next == '\\' {
+                            s.push(c_next);
+                        } else {
+                            return Err(self.error(
+                                LexicalErrorKind::UnknownEscapeSequence,
+                            ));
+                        }
+                    }
+                }
+                '"' => return Ok((Token::StringLit(s), idx + 1)),
+                c => s.push(c),
+            }
+        }
+
+        Err(self.error(LexicalErrorKind::UnclosedStringLiteral))
+    }
+
     fn raw_regex_lit(
         &mut self,
     ) -> Result<(Token<'input>, usize), InternalError> {
@@ -525,6 +559,8 @@ impl<'input> Iterator for Lexer<'input> {
 
                 '\'' => Self::spanned(start, self.raw_regex_lit()),
 
+                '"' => Self::spanned(start, self.string_lit()),
+
                 c if self.is_start_word_char(c) => {
                     Self::spanned(start, self.word())
                 }
@@ -564,6 +600,7 @@ mod tests {
                 *l == *r
             }
             (&Token::IntLit(ref l), &Token::IntLit(ref r)) => *l == *r,
+            (&Token::StringLit(ref l), &Token::StringLit(ref r)) => *l == *r,
             (&Token::Id(ref l), &Token::Id(ref r)) => *l == *r,
 
             (&Token::OpenParen, &Token::OpenParen) => true,
@@ -899,6 +936,34 @@ mod tests {
     tokens!(num_3_, r" 56,", Token::IntLit(56), Token::Comma);
     tokens!(num_4_, r" 5", Token::IntLit(5));
     tokens!(num_5_, r" 5 ", Token::IntLit(5));
+
+    //
+    // Strings
+    //
+
+    tokens!(
+        str_1_,
+        " \"hello\" ",
+        Token::StringLit("hello".to_string())
+    );
+
+    tokens!(
+        str_2_,
+        " \"hello world\" ",
+        Token::StringLit("hello world".to_string())
+    );
+
+    tokens!(
+        str_3_,
+        " \"hello \\\\ world\" ",
+        Token::StringLit("hello \\ world".to_string())
+    );
+
+    tokens!(
+        str_4_,
+        " \"hello \\\" world\" ",
+        Token::StringLit("hello \" world".to_string())
+    );
 
     //
     // Spans

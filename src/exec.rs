@@ -26,6 +26,7 @@ pub enum Value {
     Regex(Box<regex_syntax::ast::Ast>),
     Int64(i64),
     Float64(f64),
+    Str(String),
 }
 
 impl Value {
@@ -34,6 +35,7 @@ impl Value {
             &Value::Regex(_) => "regex",
             &Value::Int64(_) => "int",
             &Value::Float64(_) => "float",
+            &Value::Str(_) => "str",
         }
     }
 }
@@ -180,6 +182,8 @@ fn eval_(env: &mut EvalEnv, expr: Expr) -> Result<Value, InternalError> {
 
         ExprKind::FloatLiteral(f) => Ok(Value::Float64(f)),
 
+        ExprKind::StringLiteral(s) => Ok(Value::Str(s)),
+
         ExprKind::ExprPoison => panic!("Bug in remake."),
     }
 }
@@ -257,6 +261,7 @@ mod tests {
         match (lhs, rhs) {
             (&Value::Regex(ref l), &Value::Regex(ref r)) => *l == *r,
             (&Value::Int64(ref l), &Value::Int64(ref r)) => *l == *r,
+            (&Value::Str(ref l), &Value::Str(ref r)) => *l == *r,
 
             // stupid fixed-epsilon test
             (&Value::Float64(ref l), &Value::Float64(ref r)) => {
@@ -309,4 +314,15 @@ mod tests {
     eval_to!(basic_float_2_, " 5.9", Value::Float64(5.9));
 
     eval_fail!(basic_float_3_, " 5 .9");
+
+    eval_to!(
+        basic_str_1_,
+        " \"hello\"",
+        Value::Str("hello".to_string())
+    );
+    eval_to!(
+        basic_str_2_,
+        " \"\" ",
+        Value::Str("".to_string())
+    );
 }

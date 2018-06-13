@@ -52,6 +52,7 @@ pub enum ExprKind {
     RegexLiteral(Box<regex_syntax::ast::Ast>),
     IntLiteral(i64),
     FloatLiteral(f64),
+    StringLiteral(String),
 
     /// A poison expression is never valid, but it lets us avoid copying
     /// the source string and still please the borrow checker.
