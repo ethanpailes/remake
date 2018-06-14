@@ -50,6 +50,8 @@ pub enum Token<'input> {
     As,
     Cap,
     Let,
+    True,
+    False,
 }
 
 impl<'input> fmt::Display for Token<'input> {
@@ -85,6 +87,8 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::As => write!(f, "as"),
             &Token::Cap => write!(f, "cap"),
             &Token::Let => write!(f, "let"),
+            &Token::True => write!(f, "true"),
+            &Token::False => write!(f, "false"),
         }
     }
 }
@@ -405,6 +409,8 @@ impl<'input> Lexer<'input> {
                     "cap" => Ok((Token::Cap, end)),
                     "as" => Ok((Token::As, end)),
                     "let" => Ok((Token::Let, end)),
+                    "true" => Ok((Token::True, end)),
+                    "false" => Ok((Token::False, end)),
 
                     // Reserved Keywords
                     //
@@ -412,7 +418,7 @@ impl<'input> Lexer<'input> {
                     // expression which returns a more complicated
                     // description of types than the simple string from typeof.
                     "if" | "while" | "for" | "fn" | "else" | "match"
-                    | "enum" | "true" | "false" | "return" | "in"
+                    | "enum" | "return" | "in"
                     | "typeof" | "structured" | "continue" | "loop"
                     | "break" | "struct" => Err(self.error(
                         LexicalErrorKind::ReservedButNotUsedKeyword {
@@ -622,6 +628,8 @@ mod tests {
             (&Token::As, &Token::As) => true,
             (&Token::Cap, &Token::Cap) => true,
             (&Token::Let, &Token::Let) => true,
+            (&Token::True, &Token::True) => true,
+            (&Token::False, &Token::False) => true,
 
             // stupid fixed-epsilon test
             (&Token::FloatLit(ref l), &Token::FloatLit(ref r)) => {
@@ -1039,6 +1047,8 @@ mod tests {
     tok_round_trip!(trt_19_, "*?");
     tok_round_trip!(trt_20_, "|");
     tok_round_trip!(trt_21_, ";");
+    tok_round_trip!(trt_22_, "true");
+    tok_round_trip!(trt_23_, "false");
 
     //
     // Specific lexical errors

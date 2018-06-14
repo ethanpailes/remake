@@ -334,7 +334,7 @@ mod ast;
 mod error;
 mod exec;
 mod lex;
-mod operators;
+mod re_operators;
 mod parse;
 mod util;
 

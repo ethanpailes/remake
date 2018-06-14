@@ -13,8 +13,8 @@ use regex_syntax::ast::{GroupKind, RepetitionKind};
 
 use ast::{BOp, Expr, ExprKind, Statement, StatementKind, UOp};
 use error::{ErrorKind, InternalError};
-use operators;
-use operators::noncapturing_group;
+use re_operators;
+use re_operators::noncapturing_group;
 use util::POISON_SPAN;
 
 /// A remake runtime value.
@@ -27,6 +27,7 @@ pub enum Value {
     Int64(i64),
     Float64(f64),
     Str(String),
+    Bool(bool),
 }
 
 impl Value {
@@ -36,6 +37,7 @@ impl Value {
             &Value::Int64(_) => "int",
             &Value::Float64(_) => "float",
             &Value::Str(_) => "str",
+            &Value::Bool(_) => "bool",
         }
     }
 }
@@ -44,23 +46,35 @@ pub fn eval(expr: Expr) -> Result<Value, InternalError> {
     eval_(&mut EvalEnv::new(), expr)
 }
 
+macro_rules! type_error {
+    ($val:expr, $span:expr, $($expected:expr),* ) => {
+        Err(InternalError::new(
+            ErrorKind::TypeError {
+                actual: $val.type_of().to_string(),
+                expected: vec![$($expected.to_string()),*],
+            },
+            $span
+            ))
+    }
+}
+
 /// Evaluate an expression and return the inner type of the
 /// resulting value if it matches the given type.
 macro_rules! expect_type {
-    ($env:expr, $expr:expr,"regex") => {{
+    ($env:expr, $expr:expr, "regex") => {{
         let e = $expr;
         let expr_span = e.span.clone();
         match eval_($env, e)? {
             Value::Regex(re) => re,
-            val => {
-                return Err(InternalError::new(
-                    ErrorKind::TypeError {
-                        actual: val.type_of().to_string(),
-                        expected: "regex".to_string(),
-                    },
-                    expr_span,
-                ))
-            }
+            val => return type_error!(val, expr_span, "regex"),
+        }
+    }};
+    ($env:expr, $expr:expr, "str") => {{
+        let e = $expr;
+        let expr_span = e.span.clone();
+        match eval_($env, e)? {
+            Value::Str(s) => s,
+            val => return type_error!(val, expr_span, "str"),
         }
     }};
 }
@@ -70,11 +84,23 @@ fn eval_(env: &mut EvalEnv, expr: Expr) -> Result<Value, InternalError> {
         ExprKind::RegexLiteral(r) => Ok(Value::Regex(r)),
 
         ExprKind::BinOp(lhs, op, rhs) => match op {
-            BOp::Concat => Ok(Value::Regex(operators::concat(
-                expect_type!(env, *lhs, "regex"),
-                expect_type!(env, *rhs, "regex"),
-            ))),
-            BOp::Alt => Ok(Value::Regex(operators::alt(
+            BOp::Concat => {
+                let expr_span = lhs.span.clone();
+                match eval_(env, *lhs)? {
+                    Value::Regex(re) =>
+                        Ok(Value::Regex(re_operators::concat(re,
+                            expect_type!(env, *rhs, "regex")))),
+                    Value::Str(s1) => {
+                        let s2 = expect_type!(env, *rhs, "str");
+                        let mut s = String::with_capacity(s1.len() + s2.len());
+                        s.push_str(&s1);
+                        s.push_str(&s2);
+                        Ok(Value::Str(s))
+                    }
+                    val => type_error!(val, expr_span, "regex", "str"),
+                }
+            }
+            BOp::Alt => Ok(Value::Regex(re_operators::alt(
                 expect_type!(env, *lhs, "regex"),
                 expect_type!(env, *rhs, "regex"),
             ))),
@@ -184,6 +210,8 @@ fn eval_(env: &mut EvalEnv, expr: Expr) -> Result<Value, InternalError> {
 
         ExprKind::StringLiteral(s) => Ok(Value::Str(s)),
 
+        ExprKind::BoolLiteral(b) => Ok(Value::Bool(b)),
+
         ExprKind::ExprPoison => panic!("Bug in remake."),
     }
 }
@@ -262,6 +290,7 @@ mod tests {
             (&Value::Regex(ref l), &Value::Regex(ref r)) => *l == *r,
             (&Value::Int64(ref l), &Value::Int64(ref r)) => *l == *r,
             (&Value::Str(ref l), &Value::Str(ref r)) => *l == *r,
+            (&Value::Bool(ref l), &Value::Bool(ref r)) => *l == *r,
 
             // stupid fixed-epsilon test
             (&Value::Float64(ref l), &Value::Float64(ref r)) => {
@@ -305,6 +334,30 @@ mod tests {
                 );
             }
         };
+        ($test_name:ident, $remake_src:expr, $error_frag:expr) => {
+            #[test]
+            fn $test_name() {
+                let parser = BlockBodyParser::new();
+                let lexer = lex::Lexer::new($remake_src);
+                let expr = eval(parser.parse(lexer).unwrap());
+
+                match expr {
+                    Ok(_) =>
+                        panic!(
+                            "The expr '{}' should not evaulate to anything",
+                            $remake_src
+                        ),
+                    Err(e) =>
+                        assert!(
+                            format!("{}", e.overlay($remake_src))
+                                .contains($error_frag),
+                            "The expr '{}' must have an error containing '{}'",
+                            $remake_src,
+                            $error_frag,
+                        ),
+                }
+            }
+        };
     }
 
     eval_to!(basic_int_1_, " 5", Value::Int64(5));
@@ -325,4 +378,16 @@ mod tests {
         " \"\" ",
         Value::Str("".to_string())
     );
+
+    eval_to!(basic_bool_1_, " true", Value::Bool(true));
+    eval_to!(basic_bool_2_, " false ", Value::Bool(false));
+
+    eval_to!(
+        str_1_,
+        " \"hello \" . \"world\"",
+        Value::Str("hello world".to_string())
+    );
+
+    eval_fail!(str_2_, " \"hello \" . 'sup' ", "TypeError");
+    eval_fail!(str_3_, " 'regex' . \"str\" ", "TypeError");
 }

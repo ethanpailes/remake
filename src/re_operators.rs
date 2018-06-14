@@ -53,7 +53,7 @@ pub fn concat(lhs: Box<Ast>, rhs: Box<Ast>) -> Box<Ast> {
         })),
 
         (l, r) => {
-            // The regex crate has not public dependency on regex-syntax,
+            // The regex crate has no public dependency on regex-syntax,
             // which means that we have no way to just pass an AST to
             // the regex engine for compilation. One of the issues with this
             // is that we will lose any structure in the AST which does not

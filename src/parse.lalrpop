@@ -26,6 +26,8 @@ extern {
         "int" => lex::Token::IntLit(<i64>),
         "float" => lex::Token::FloatLit(<f64>),
         "str" => lex::Token::StringLit(<String>),
+        "true" => lex::Token::True,
+        "false" => lex::Token::False,
         "identifier" => lex::Token::Id(<&'input str>),
 
         "(" => lex::Token::OpenParen,
@@ -151,6 +153,8 @@ ExprKind4: ExprKind = {
     <int:"int"> => ExprKind::IntLiteral(int),
     <float:"float"> => ExprKind::FloatLiteral(float),
     <str:"str"> => ExprKind::StringLiteral(str),
+    "true" => ExprKind::BoolLiteral(true),
+    "false" => ExprKind::BoolLiteral(false),
     "(" <ExprKind0> ")",
 };
 
