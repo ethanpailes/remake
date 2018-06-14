@@ -56,6 +56,12 @@ pub enum Token<'input> {
     Gt,
     Bang,
 
+    Minus,
+    Add,
+    Times,
+    Div,
+    Percent,
+
     // Keywords.
     As,
     Cap,
@@ -101,6 +107,12 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::Lt => write!(f, "<"),
             &Token::Gt => write!(f, ">"),
             &Token::Bang => write!(f, "!"),
+
+            &Token::Minus => write!(f, "-"),
+            &Token::Percent => write!(f, "%"),
+            &Token::Div => write!(f, "</>"),
+            &Token::Add => write!(f, "<+>"),
+            &Token::Times => write!(f, "<*>"),
 
             // Keywords.
             &Token::As => write!(f, "as"),
@@ -222,7 +234,7 @@ impl<'input> Lexer<'input> {
 
             word_re: Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*").unwrap(),
             operator_re: Regex::new(
-                r"^(:?\(|\)|\{|\}\?|\}|,|;|\*\?|\*|\+\?|\+|\?\?|\?|\.\.|\.|==|\|\||\||&&|=>|<=|>=|<|>|!=|!|=)").unwrap(),
+                r"^(:?\(|\)|\{|\}\?|\}|,|;|<\*>|\*\?|\*|\+\?|\+|\?\?|\?|\.\.|\.|==|\|\||\||&&|=>|<=|>=|<\+>|</>|<|>|!=|!|=|-|%)").unwrap(),
         }
     }
 
@@ -286,10 +298,10 @@ impl<'input> Lexer<'input> {
     fn is_start_operator_char(&self, c: char) -> bool {
         match c {
             '{' | '}' | '*' | '+' | '?' | '.' | '|' | ',' | ';' | '=' | '('
-            | ')' | '!' | '&' | '<' | '>' => true,
+            | ')' | '!' | '&' | '<' | '>' | '-' | '/' | '%' => true,
 
             // reserved but not used
-            '[' | ']' | '-' | '^' => true,
+            '[' | ']' | '^' => true,
             _ => false,
         }
     }
@@ -555,6 +567,12 @@ impl<'input> Lexer<'input> {
                     "<=" => Ok((Token::Le, end)),
                     ">=" => Ok((Token::Ge, end)),
                     "!=" => Ok((Token::Ne, end)),
+
+                    "-" => Ok((Token::Minus, end)),
+                    "%" => Ok((Token::Percent, end)),
+                    "</>" => Ok((Token::Div, end)),
+                    "<*>" => Ok((Token::Times, end)),
+                    "<+>" => Ok((Token::Add, end)),
 
                     ".." | "=>" => Err(self.error(
                         LexicalErrorKind::ReservedButNotUsedOperator {
@@ -1097,6 +1115,11 @@ mod tests {
     tok_round_trip!(trt_30_, "<");
     tok_round_trip!(trt_31_, ">");
     tok_round_trip!(trt_32_, "!");
+    tok_round_trip!(trt_33_, "-");
+    tok_round_trip!(trt_35_, "%");
+    tok_round_trip!(trt_36_, "</>");
+    tok_round_trip!(trt_37_, "<+>");
+    tok_round_trip!(trt_38_, "<*>");
 
     //
     // Specific lexical errors

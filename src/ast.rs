@@ -74,11 +74,18 @@ pub enum BOp {
     Gt,
     And,
     Or,
+
+    Plus,
+    Minus,
+    Div,
+    Times,
+    Mod,
 }
 
 #[derive(Debug, Clone)]
 pub enum UOp {
     Not,
+    Neg,
     RepeatZeroOrMore(bool),
     RepeatOneOrMore(bool),
     RepeatZeroOrOne(bool),

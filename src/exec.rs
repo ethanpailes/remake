@@ -129,6 +129,8 @@ fn eval_(env: &mut EvalEnv, expr: Expr) -> Result<Value, InternalError> {
                 expect_type!(env, *lhs, "regex"),
                 expect_type!(env, *rhs, "regex"),
             ))),
+
+            // comparison operators
             BOp::Equals => Ok(Value::Bool(eval_equals(env, lhs, rhs)?)),
             BOp::Ne => Ok(Value::Bool(!eval_equals(env, lhs, rhs)?)),
             BOp::Lt => Ok(Value::Bool(eval_lt(env, lhs, rhs)?)),
@@ -143,10 +145,80 @@ fn eval_(env: &mut EvalEnv, expr: Expr) -> Result<Value, InternalError> {
                 expect_type!(env, *lhs, "bool")
                     && expect_type!(env, *rhs, "bool"),
             )),
+
+            // arith operators
+            BOp::Plus => {
+                let span = lhs.span.clone();
+                match eval_(env, *lhs)? {
+                    Value::Int(i) => {
+                        Ok(Value::Int(i + expect_type!(env, *rhs, "int")))
+                    }
+                    Value::Float(f) => Ok(Value::Float(
+                        f + expect_type!(env, *rhs, "float"),
+                    )),
+                    val => type_error!(val, span, "int", "float"),
+                }
+            }
+            BOp::Minus => {
+                let span = lhs.span.clone();
+                match eval_(env, *lhs)? {
+                    Value::Int(i) => {
+                        Ok(Value::Int(i - expect_type!(env, *rhs, "int")))
+                    }
+                    Value::Float(f) => Ok(Value::Float(
+                        f - expect_type!(env, *rhs, "float"),
+                    )),
+                    val => type_error!(val, span, "int", "float"),
+                }
+            }
+            BOp::Div => {
+                let span = lhs.span.clone();
+                match eval_(env, *lhs)? {
+                    Value::Int(i) => {
+                        Ok(Value::Int(i / expect_type!(env, *rhs, "int")))
+                    }
+                    Value::Float(f) => Ok(Value::Float(
+                        f / expect_type!(env, *rhs, "float"),
+                    )),
+                    val => type_error!(val, span, "int", "float"),
+                }
+            }
+            BOp::Times => {
+                let span = lhs.span.clone();
+                match eval_(env, *lhs)? {
+                    Value::Int(i) => {
+                        Ok(Value::Int(i * expect_type!(env, *rhs, "int")))
+                    }
+                    Value::Float(f) => Ok(Value::Float(
+                        f * expect_type!(env, *rhs, "float"),
+                    )),
+                    val => type_error!(val, span, "int", "float"),
+                }
+            }
+            BOp::Mod => {
+                let span = lhs.span.clone();
+                match eval_(env, *lhs)? {
+                    Value::Int(i) => {
+                        Ok(Value::Int(i % expect_type!(env, *rhs, "int")))
+                    }
+                    Value::Float(f) => Ok(Value::Float(
+                        f % expect_type!(env, *rhs, "float"),
+                    )),
+                    val => type_error!(val, span, "int", "float"),
+                }
+            }
         },
 
         ExprKind::UnaryOp(op, e) => match op {
             UOp::Not => Ok(Value::Bool(!expect_type!(env, *e, "bool"))),
+            UOp::Neg => {
+                let span = e.span.clone();
+                match eval_(env, *e)? {
+                    Value::Int(i) => Ok(Value::Int(-i)),
+                    Value::Float(f) => Ok(Value::Float(-f)),
+                    val => type_error!(val, span, "int", "float"),
+                }
+            }
             UOp::RepeatZeroOrMore(greedy) => Ok(Value::Regex(Box::new(
                 regex_syntax::ast::Ast::Repetition(
                     regex_syntax::ast::Repetition {
@@ -433,9 +505,10 @@ mod tests {
 
                 assert!(
                     test_eq(&$expected_value, &expr),
-                    "The expr '{}' does not evaluate to {:?}",
+                    "The expr '{}' evaluates to {:?} not {:?}",
                     $remake_src,
-                    $expected_value
+                    expr,
+                    $expected_value,
                 );
             }
         };
@@ -616,4 +689,27 @@ mod tests {
     eval_fail!(prim_cmp_30_, " false >= 1 ", "TypeError");
     eval_fail!(prim_cmp_31_, " false == 1 ", "TypeError");
     eval_fail!(prim_cmp_32_, " false != 1 ", "TypeError");
+
+    //
+    // Arith Ops
+    //
+
+    eval_to!(arith_1_, " 1 <+> 2 ", Value::Int(3));
+    eval_to!(arith_2_, " 1 - 2 ", Value::Int(-1));
+    eval_to!(arith_3_, " 1 </> 2 ", Value::Int(0));
+    eval_to!(arith_4_, " 3 % 2 ", Value::Int(1));
+    eval_to!(arith_5_, " 1 <*> 2 ", Value::Int(2));
+
+    eval_to!(arith_6_, " 1.0 <+> 2.0 ", Value::Float(3.0));
+    eval_to!(arith_7_, " 1.0 - 2.0 ", Value::Float(-1.0));
+    eval_to!(arith_8_, " 1.0 </> 2.0 ", Value::Float(0.5));
+    eval_to!(arith_9_, " 3.0 % 2.0 ", Value::Float(1.0));
+    eval_to!(arith_10_, " 1.0 <*> 2.0 ", Value::Float(2.0));
+
+    eval_fail!(arith_11_, " 1 <+> 2.0 ", "TypeError");
+    eval_fail!(arith_12_, " 1.0 - 2 ", "TypeError");
+    eval_fail!(arith_13_, " 1 </> 2.0 ", "TypeError");
+    eval_fail!(arith_14_, " 3 % 2.0 ", "TypeError");
+    eval_fail!(arith_15_, " 1.0 <*> 2 ", "TypeError");
+    eval_fail!(arith_16_, " \"str\" <+> 2 ", "TypeError");
 }

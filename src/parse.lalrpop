@@ -61,6 +61,12 @@ extern {
         "||" => lex::Token::Or,
         "!" => lex::Token::Bang,
 
+        "<+>" => lex::Token::Add,
+        "</>" => lex::Token::Div,
+        "<*>" => lex::Token::Times,
+        "-" => lex::Token::Minus,
+        "%" => lex::Token::Percent,
+
         "as" => lex::Token::As,
         "cap" => lex::Token::Cap,
         "let" => lex::Token::Let,
@@ -92,15 +98,6 @@ ExprKind0: ExprKind = {
     <e1:Expr0> "." <e2:Expr1> => ExprKind::BinOp(e1, BOp::Concat, e2),
     <e1:Expr0> "|" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Alt, e2),
 
-    <e1:Expr0> "==" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Equals, e2),
-    <e1:Expr0> "!=" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Ne, e2),
-    <e1:Expr0> "<" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Lt, e2),
-    <e1:Expr0> ">" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Gt, e2),
-    <e1:Expr0> "<=" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Le, e2),
-    <e1:Expr0> ">=" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Ge, e2),
-    <e1:Expr0> "&&" <e2:Expr1> => ExprKind::BinOp(e1, BOp::And, e2),
-    <e1:Expr0> "||" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Or, e2),
-
     ExprKind1
 };
 
@@ -109,7 +106,8 @@ Expr1: Box<Expr> = {
         Box::new(Expr::new(e, Span { start: l, end: r }))
 };
 ExprKind1: ExprKind = {
-    <e:CapExpr> "as" <name:Id> => ExprKind::Capture(e, Some(name)),
+    "cap" <e:Expr2> "as" <name:"identifier"> =>
+        ExprKind::Capture(e, Some(name.to_string())),
 
     ExprKind2
 };
@@ -119,14 +117,9 @@ Expr2: Box<Expr> = {
         Box::new(Expr::new(e, Span { start: l, end: r }))
 };
 ExprKind2: ExprKind = {
-    <CapExpr> => ExprKind::Capture(<>, None),
-    "!" <e:Expr2> => ExprKind::UnaryOp(UOp::Not, e),
+    "cap" <e:Expr2> => ExprKind::Capture(e, None),
 
     ExprKind3
-};
-
-CapExpr: Box<Expr> = {
-    "cap" <e:Expr2> => e
 };
 
 Expr3: Box<Expr> = {
@@ -169,18 +162,47 @@ Expr4: Box<Expr> = {
         Box::new(Expr::new(e, Span { start: l, end: r }))
 };
 ExprKind4: ExprKind = {
+    <e1:Expr4> "<+>" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Plus, e2),
+    <e1:Expr4> "<*>" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Times, e2),
+    <e1:Expr4> "</>" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Div, e2),
+    <e1:Expr4> "-" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Minus, e2),
+    <e1:Expr4> "%" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Mod, e2),
+
+    ExprKind5,
+};
+
+Expr5: Box<Expr> = {
+    <l: @L> <e:ExprKind5> <r: @R> =>
+        Box::new(Expr::new(e, Span { start: l, end: r }))
+};
+ExprKind5: ExprKind = {
+    "!" <e:Expr6> => ExprKind::UnaryOp(UOp::Not, e),
+    "-" <e:Expr6> => ExprKind::UnaryOp(UOp::Neg, e),
+    <e1:Expr5> "==" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Equals, e2),
+    <e1:Expr5> "!=" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Ne, e2),
+    <e1:Expr5> "<" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Lt, e2),
+    <e1:Expr5> ">" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Gt, e2),
+    <e1:Expr5> "<=" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Le, e2),
+    <e1:Expr5> ">=" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Ge, e2),
+    <e1:Expr5> "&&" <e2:Expr6> => ExprKind::BinOp(e1, BOp::And, e2),
+    <e1:Expr5> "||" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Or, e2),
+
+    ExprKind6,
+};
+
+Expr6: Box<Expr> = {
+    <l: @L> <e:ExprKind6> <r: @R> =>
+        Box::new(Expr::new(e, Span { start: l, end: r }))
+};
+ExprKind6: ExprKind = {
     <r:RegexLiteral> => ExprKind::RegexLiteral(r),
-    <var:Id> => ExprKind::Var(var),
+    <var:"identifier"> => ExprKind::Var(var.to_string()),
     <int:"int"> => ExprKind::IntLiteral(int),
     <float:"float"> => ExprKind::FloatLiteral(float),
     <str:"str"> => ExprKind::StringLiteral(str),
     "true" => ExprKind::BoolLiteral(true),
     "false" => ExprKind::BoolLiteral(false),
     "(" <ExprKind0> ")",
-};
-
-Id: String = {
-    "identifier" => String::from(<>)
 };
 
 RegexLiteral: Box<regex_syntax::ast::Ast> = {
@@ -229,7 +251,7 @@ Statement: Statement = {
         Statement::new(s, Span { start: l, end: r })
 };
 StatementKind: StatementKind = {
-    "let" <id:Id> "=" <e:Expr0> => {
+    "let" <id:"identifier"> "=" <e:Expr0> => {
         StatementKind::LetBinding(String::from(id), e)
     }
 };
