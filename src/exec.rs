@@ -690,6 +690,17 @@ mod tests {
     eval_fail!(prim_cmp_31_, " false == 1 ", "TypeError");
     eval_fail!(prim_cmp_32_, " false != 1 ", "TypeError");
 
+    eval_to!(
+        prim_cmp_33_,
+        " false || true ",
+        Value::Bool(true)
+    );
+    eval_to!(
+        prim_cmp_34_,
+        " false && true ",
+        Value::Bool(false)
+    );
+
     //
     // Arith Ops
     //
