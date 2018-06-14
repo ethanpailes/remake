@@ -24,8 +24,8 @@ use util::POISON_SPAN;
 #[derive(Debug, Clone)]
 pub enum Value {
     Regex(Box<regex_syntax::ast::Ast>),
-    Int64(i64),
-    Float64(f64),
+    Int(i64),
+    Float(f64),
     Str(String),
     Bool(bool),
 }
@@ -34,8 +34,8 @@ impl Value {
     pub fn type_of(&self) -> &str {
         match self {
             &Value::Regex(_) => "regex",
-            &Value::Int64(_) => "int",
-            &Value::Float64(_) => "float",
+            &Value::Int(_) => "int",
+            &Value::Float(_) => "float",
             &Value::Str(_) => "str",
             &Value::Bool(_) => "bool",
         }
@@ -61,7 +61,7 @@ macro_rules! type_error {
 /// Evaluate an expression and return the inner type of the
 /// resulting value if it matches the given type.
 macro_rules! expect_type {
-    ($env:expr, $expr:expr, "regex") => {{
+    ($env:expr, $expr:expr,"regex") => {{
         let e = $expr;
         let expr_span = e.span.clone();
         match eval_($env, e)? {
@@ -69,12 +69,36 @@ macro_rules! expect_type {
             val => return type_error!(val, expr_span, "regex"),
         }
     }};
-    ($env:expr, $expr:expr, "str") => {{
+    ($env:expr, $expr:expr,"str") => {{
         let e = $expr;
         let expr_span = e.span.clone();
         match eval_($env, e)? {
             Value::Str(s) => s,
             val => return type_error!(val, expr_span, "str"),
+        }
+    }};
+    ($env:expr, $expr:expr,"int") => {{
+        let e = $expr;
+        let expr_span = e.span.clone();
+        match eval_($env, e)? {
+            Value::Int(i) => i,
+            val => return type_error!(val, expr_span, "int"),
+        }
+    }};
+    ($env:expr, $expr:expr,"float") => {{
+        let e = $expr;
+        let expr_span = e.span.clone();
+        match eval_($env, e)? {
+            Value::Float(i) => i,
+            val => return type_error!(val, expr_span, "float"),
+        }
+    }};
+    ($env:expr, $expr:expr,"bool") => {{
+        let e = $expr;
+        let expr_span = e.span.clone();
+        match eval_($env, e)? {
+            Value::Bool(b) => b,
+            val => return type_error!(val, expr_span, "bool"),
         }
     }};
 }
@@ -87,9 +111,10 @@ fn eval_(env: &mut EvalEnv, expr: Expr) -> Result<Value, InternalError> {
             BOp::Concat => {
                 let expr_span = lhs.span.clone();
                 match eval_(env, *lhs)? {
-                    Value::Regex(re) =>
-                        Ok(Value::Regex(re_operators::concat(re,
-                            expect_type!(env, *rhs, "regex")))),
+                    Value::Regex(re) => Ok(Value::Regex(re_operators::concat(
+                        re,
+                        expect_type!(env, *rhs, "regex"),
+                    ))),
                     Value::Str(s1) => {
                         let s2 = expect_type!(env, *rhs, "str");
                         let mut s = String::with_capacity(s1.len() + s2.len());
@@ -104,9 +129,24 @@ fn eval_(env: &mut EvalEnv, expr: Expr) -> Result<Value, InternalError> {
                 expect_type!(env, *lhs, "regex"),
                 expect_type!(env, *rhs, "regex"),
             ))),
+            BOp::Equals => Ok(Value::Bool(eval_equals(env, lhs, rhs)?)),
+            BOp::Ne => Ok(Value::Bool(!eval_equals(env, lhs, rhs)?)),
+            BOp::Lt => Ok(Value::Bool(eval_lt(env, lhs, rhs)?)),
+            BOp::Gt => Ok(Value::Bool(eval_gt(env, lhs, rhs)?)),
+            BOp::Le => Ok(Value::Bool(eval_le(env, lhs, rhs)?)),
+            BOp::Ge => Ok(Value::Bool(eval_ge(env, lhs, rhs)?)),
+            BOp::Or => Ok(Value::Bool(
+                expect_type!(env, *lhs, "bool")
+                    || expect_type!(env, *rhs, "bool"),
+            )),
+            BOp::And => Ok(Value::Bool(
+                expect_type!(env, *lhs, "bool")
+                    && expect_type!(env, *rhs, "bool"),
+            )),
         },
 
         ExprKind::UnaryOp(op, e) => match op {
+            UOp::Not => Ok(Value::Bool(!expect_type!(env, *e, "bool"))),
             UOp::RepeatZeroOrMore(greedy) => Ok(Value::Regex(Box::new(
                 regex_syntax::ast::Ast::Repetition(
                     regex_syntax::ast::Repetition {
@@ -204,9 +244,9 @@ fn eval_(env: &mut EvalEnv, expr: Expr) -> Result<Value, InternalError> {
                 .map_err(|e| InternalError::new(e, span))
         }
 
-        ExprKind::IntLiteral(i) => Ok(Value::Int64(i)),
+        ExprKind::IntLiteral(i) => Ok(Value::Int(i)),
 
-        ExprKind::FloatLiteral(f) => Ok(Value::Float64(f)),
+        ExprKind::FloatLiteral(f) => Ok(Value::Float(f)),
 
         ExprKind::StringLiteral(s) => Ok(Value::Str(s)),
 
@@ -266,12 +306,94 @@ impl EvalEnv {
     }
 }
 
+//
+// Utils
+//
+
+fn eval_equals(
+    env: &mut EvalEnv,
+    lhs: Box<Expr>,
+    rhs: Box<Expr>,
+) -> Result<bool, InternalError> {
+    match eval_(env, *lhs)? {
+        Value::Regex(re) => Ok(re == expect_type!(env, *rhs, "regex")),
+        Value::Int(i) => Ok(i == expect_type!(env, *rhs, "int")),
+        Value::Float(f) => {
+            Ok((f - expect_type!(env, *rhs, "float")).abs() < FLOAT_EQ_EPSILON)
+        }
+        Value::Str(s) => Ok(s == expect_type!(env, *rhs, "str")),
+        Value::Bool(s) => Ok(s == expect_type!(env, *rhs, "bool")),
+    }
+}
+
+fn eval_lt(
+    env: &mut EvalEnv,
+    lhs: Box<Expr>,
+    rhs: Box<Expr>,
+) -> Result<bool, InternalError> {
+    let span = lhs.span.clone();
+    match eval_(env, *lhs)? {
+        Value::Int(i) => Ok(i < expect_type!(env, *rhs, "int")),
+        Value::Float(f) => Ok(f < expect_type!(env, *rhs, "float")),
+        Value::Str(s) => Ok(s < expect_type!(env, *rhs, "str")),
+        Value::Bool(s) => Ok(s < expect_type!(env, *rhs, "bool")),
+        val => type_error!(val, span, "int", "float", "str", "bool"),
+    }
+}
+
+fn eval_gt(
+    env: &mut EvalEnv,
+    lhs: Box<Expr>,
+    rhs: Box<Expr>,
+) -> Result<bool, InternalError> {
+    let span = lhs.span.clone();
+    match eval_(env, *lhs)? {
+        Value::Int(i) => Ok(i > expect_type!(env, *rhs, "int")),
+        Value::Float(f) => Ok(f > expect_type!(env, *rhs, "float")),
+        Value::Str(s) => Ok(s > expect_type!(env, *rhs, "str")),
+        Value::Bool(s) => Ok(s > expect_type!(env, *rhs, "bool")),
+        val => type_error!(val, span, "int", "float", "str", "bool"),
+    }
+}
+
+fn eval_le(
+    env: &mut EvalEnv,
+    lhs: Box<Expr>,
+    rhs: Box<Expr>,
+) -> Result<bool, InternalError> {
+    let span = lhs.span.clone();
+    match eval_(env, *lhs)? {
+        Value::Int(i) => Ok(i <= expect_type!(env, *rhs, "int")),
+        Value::Float(f) => Ok(f <= expect_type!(env, *rhs, "float")),
+        Value::Str(s) => Ok(s <= expect_type!(env, *rhs, "str")),
+        Value::Bool(s) => Ok(s <= expect_type!(env, *rhs, "bool")),
+        val => type_error!(val, span, "int", "float", "str", "bool"),
+    }
+}
+
+fn eval_ge(
+    env: &mut EvalEnv,
+    lhs: Box<Expr>,
+    rhs: Box<Expr>,
+) -> Result<bool, InternalError> {
+    let span = lhs.span.clone();
+    match eval_(env, *lhs)? {
+        Value::Int(i) => Ok(i >= expect_type!(env, *rhs, "int")),
+        Value::Float(f) => Ok(f >= expect_type!(env, *rhs, "float")),
+        Value::Str(s) => Ok(s >= expect_type!(env, *rhs, "str")),
+        Value::Bool(s) => Ok(s >= expect_type!(env, *rhs, "bool")),
+        val => type_error!(val, span, "int", "float", "str", "bool"),
+    }
+}
+
 /// We don't have to spend any effort assigning indicies to groups because
 /// we are going to pretty-print the AST and have regex just parse it.
 /// If we passed the AST to the regex crate directly, we would need some
 /// way to thread the group index through its parser. This way we can
 /// just ignore the whole problem.
 const BOGUS_GROUP_INDEX: u32 = 0;
+
+const FLOAT_EQ_EPSILON: f64 = 0.000001;
 
 #[cfg(test)]
 mod tests {
@@ -288,12 +410,12 @@ mod tests {
     fn test_eq(lhs: &Value, rhs: &Value) -> bool {
         match (lhs, rhs) {
             (&Value::Regex(ref l), &Value::Regex(ref r)) => *l == *r,
-            (&Value::Int64(ref l), &Value::Int64(ref r)) => *l == *r,
+            (&Value::Int(ref l), &Value::Int(ref r)) => *l == *r,
             (&Value::Str(ref l), &Value::Str(ref r)) => *l == *r,
             (&Value::Bool(ref l), &Value::Bool(ref r)) => *l == *r,
 
             // stupid fixed-epsilon test
-            (&Value::Float64(ref l), &Value::Float64(ref r)) => {
+            (&Value::Float(ref l), &Value::Float(ref r)) => {
                 (*l - *r).abs() < 0.0000001
             }
 
@@ -342,29 +464,27 @@ mod tests {
                 let expr = eval(parser.parse(lexer).unwrap());
 
                 match expr {
-                    Ok(_) =>
-                        panic!(
-                            "The expr '{}' should not evaulate to anything",
-                            $remake_src
-                        ),
-                    Err(e) =>
-                        assert!(
-                            format!("{}", e.overlay($remake_src))
-                                .contains($error_frag),
-                            "The expr '{}' must have an error containing '{}'",
-                            $remake_src,
-                            $error_frag,
-                        ),
+                    Ok(_) => panic!(
+                        "The expr '{}' should not evaulate to anything",
+                        $remake_src
+                    ),
+                    Err(e) => assert!(
+                        format!("{}", e.overlay($remake_src))
+                            .contains($error_frag),
+                        "The expr '{}' must have an error containing '{}'",
+                        $remake_src,
+                        $error_frag,
+                    ),
                 }
             }
         };
     }
 
-    eval_to!(basic_int_1_, " 5", Value::Int64(5));
-    eval_to!(basic_int_2_, " 8  ", Value::Int64(8));
+    eval_to!(basic_int_1_, " 5", Value::Int(5));
+    eval_to!(basic_int_2_, " 8  ", Value::Int(8));
 
-    eval_to!(basic_float_1_, " 5.0   ", Value::Float64(5.0));
-    eval_to!(basic_float_2_, " 5.9", Value::Float64(5.9));
+    eval_to!(basic_float_1_, " 5.0   ", Value::Float(5.0));
+    eval_to!(basic_float_2_, " 5.9", Value::Float(5.9));
 
     eval_fail!(basic_float_3_, " 5 .9");
 
@@ -390,4 +510,110 @@ mod tests {
 
     eval_fail!(str_2_, " \"hello \" . 'sup' ", "TypeError");
     eval_fail!(str_3_, " 'regex' . \"str\" ", "TypeError");
+
+    //
+    // Primitive Comparisons
+    //
+
+    eval_to!(
+        prim_cmp_1_,
+        " \"aaa\" < \"zzz\" ",
+        Value::Bool(true)
+    );
+    eval_to!(
+        prim_cmp_2_,
+        " \"aaa\" > \"zzz\" ",
+        Value::Bool(false)
+    );
+    eval_to!(
+        prim_cmp_3_,
+        " \"aaa\" <= \"zzz\" ",
+        Value::Bool(true)
+    );
+    eval_to!(
+        prim_cmp_4_,
+        " \"aaa\" >= \"zzz\" ",
+        Value::Bool(false)
+    );
+    eval_to!(
+        prim_cmp_5_,
+        " \"aaa\" == \"zzz\" ",
+        Value::Bool(false)
+    );
+    eval_to!(
+        prim_cmp_6_,
+        " \"aaa\" != \"zzz\" ",
+        Value::Bool(true)
+    );
+
+    eval_to!(prim_cmp_7_, " 9 < 15 ", Value::Bool(true));
+    eval_to!(prim_cmp_8_, " 9 > 15 ", Value::Bool(false));
+    eval_to!(prim_cmp_9_, " 9 <= 15 ", Value::Bool(true));
+    eval_to!(prim_cmp_10_, " 9 >= 15 ", Value::Bool(false));
+    eval_to!(prim_cmp_11_, " 9 == 15 ", Value::Bool(false));
+    eval_to!(prim_cmp_12_, " 9 != 15 ", Value::Bool(true));
+
+    eval_to!(prim_cmp_13_, " 9.0 < 15.0 ", Value::Bool(true));
+    eval_to!(prim_cmp_14_, " 9.0 > 15.0 ", Value::Bool(false));
+    eval_to!(prim_cmp_15_, " 9.0 <= 15.0 ", Value::Bool(true));
+    eval_to!(
+        prim_cmp_16_,
+        " 9.0 >= 15.0 ",
+        Value::Bool(false)
+    );
+    eval_to!(
+        prim_cmp_17_,
+        " 9.0 == 15.0 ",
+        Value::Bool(false)
+    );
+    eval_to!(prim_cmp_18_, " 9.0 != 15.0 ", Value::Bool(true));
+
+    eval_to!(
+        prim_cmp_19_,
+        " /test/ == 'data' ",
+        Value::Bool(false)
+    );
+    eval_to!(
+        prim_cmp_20_,
+        " /test/ != /data/ ",
+        Value::Bool(true)
+    );
+
+    eval_to!(
+        prim_cmp_21_,
+        " false < true ",
+        Value::Bool(true)
+    );
+    eval_to!(
+        prim_cmp_22_,
+        " false > true ",
+        Value::Bool(false)
+    );
+    eval_to!(
+        prim_cmp_23_,
+        " false <= true ",
+        Value::Bool(true)
+    );
+    eval_to!(
+        prim_cmp_24_,
+        " false >= true ",
+        Value::Bool(false)
+    );
+    eval_to!(
+        prim_cmp_25_,
+        " false == true ",
+        Value::Bool(false)
+    );
+    eval_to!(
+        prim_cmp_26_,
+        " false != true ",
+        Value::Bool(true)
+    );
+
+    eval_fail!(prim_cmp_27_, " false < 1 ", "TypeError");
+    eval_fail!(prim_cmp_28_, " false > 1 ", "TypeError");
+    eval_fail!(prim_cmp_29_, " false <= 1 ", "TypeError");
+    eval_fail!(prim_cmp_30_, " false >= 1 ", "TypeError");
+    eval_fail!(prim_cmp_31_, " false == 1 ", "TypeError");
+    eval_fail!(prim_cmp_32_, " false != 1 ", "TypeError");
 }

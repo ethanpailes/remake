@@ -112,15 +112,20 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
             &TypeError {
                 ref expected,
                 ref actual,
-            } => {
-                match expected.len() {
-                    0 => writeln!(f, "TypeError: unexpected type {}", actual)?,
-                    1 => writeln!(f, "TypeError: must be {}, not {}",
-                                    expected[0], actual)?,
-                    _ => writeln!(f, "TypeError: must be one of {}, not {}",
-                                    expected.join(", "), actual)?,
-                }
-            }
+            } => match expected.len() {
+                0 => writeln!(f, "TypeError: unexpected type {}", actual)?,
+                1 => writeln!(
+                    f,
+                    "TypeError: must be {}, not {}",
+                    expected[0], actual
+                )?,
+                _ => writeln!(
+                    f,
+                    "TypeError: must be one of {}, not {}",
+                    expected.join(", "),
+                    actual
+                )?,
+            },
             &FinalValueNotRegex { ref actual } => {
                 writeln!(
                     f,

@@ -51,6 +51,16 @@ extern {
         "?" => lex::Token::Question,
         "??" => lex::Token::LazyQuestion,
 
+        "==" => lex::Token::DoubleEq,
+        "!=" => lex::Token::Ne,
+        "<" => lex::Token::Lt,
+        ">" => lex::Token::Gt,
+        "<=" => lex::Token::Le,
+        ">=" => lex::Token::Ge,
+        "&&" => lex::Token::And,
+        "||" => lex::Token::Or,
+        "!" => lex::Token::Bang,
+
         "as" => lex::Token::As,
         "cap" => lex::Token::Cap,
         "let" => lex::Token::Let,
@@ -82,6 +92,15 @@ ExprKind0: ExprKind = {
     <e1:Expr0> "." <e2:Expr1> => ExprKind::BinOp(e1, BOp::Concat, e2),
     <e1:Expr0> "|" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Alt, e2),
 
+    <e1:Expr0> "==" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Equals, e2),
+    <e1:Expr0> "!=" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Ne, e2),
+    <e1:Expr0> "<" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Lt, e2),
+    <e1:Expr0> ">" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Gt, e2),
+    <e1:Expr0> "<=" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Le, e2),
+    <e1:Expr0> ">=" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Ge, e2),
+    <e1:Expr0> "&&" <e2:Expr1> => ExprKind::BinOp(e1, BOp::And, e2),
+    <e1:Expr0> "||" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Or, e2),
+
     ExprKind1
 };
 
@@ -101,6 +120,8 @@ Expr2: Box<Expr> = {
 };
 ExprKind2: ExprKind = {
     <CapExpr> => ExprKind::Capture(<>, None),
+    "!" <e:Expr2> => ExprKind::UnaryOp(UOp::Not, e),
+
     ExprKind3
 };
 

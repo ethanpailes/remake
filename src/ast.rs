@@ -65,10 +65,20 @@ pub enum ExprKind {
 pub enum BOp {
     Concat,
     Alt,
+
+    Equals,
+    Ne,
+    Le,
+    Ge,
+    Lt,
+    Gt,
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone)]
 pub enum UOp {
+    Not,
     RepeatZeroOrMore(bool),
     RepeatOneOrMore(bool),
     RepeatZeroOrOne(bool),

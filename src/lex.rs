@@ -46,6 +46,16 @@ pub enum Token<'input> {
     LazyQuestion,
     Semi,
 
+    And,
+    Or,
+    DoubleEq,
+    Ne,
+    Le,
+    Ge,
+    Lt,
+    Gt,
+    Bang,
+
     // Keywords.
     As,
     Cap,
@@ -82,6 +92,15 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::Question => write!(f, "?"),
             &Token::LazyQuestion => write!(f, "??"),
             &Token::Semi => write!(f, ";"),
+            &Token::And => write!(f, "&&"),
+            &Token::Or => write!(f, "||"),
+            &Token::DoubleEq => write!(f, "=="),
+            &Token::Ne => write!(f, "!="),
+            &Token::Le => write!(f, "<="),
+            &Token::Ge => write!(f, ">="),
+            &Token::Lt => write!(f, "<"),
+            &Token::Gt => write!(f, ">"),
+            &Token::Bang => write!(f, "!"),
 
             // Keywords.
             &Token::As => write!(f, "as"),
@@ -203,7 +222,7 @@ impl<'input> Lexer<'input> {
 
             word_re: Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*").unwrap(),
             operator_re: Regex::new(
-                r"^(:?\(|\)|\{|\}\?|\}|,|;|\*\?|\*|\+\?|\+|\?\?|\?|\.\.|\.|==|\|\||\||&&|=>|<=|>=|<|>|!=|=)").unwrap(),
+                r"^(:?\(|\)|\{|\}\?|\}|,|;|\*\?|\*|\+\?|\+|\?\?|\?|\.\.|\.|==|\|\||\||&&|=>|<=|>=|<|>|!=|!|=)").unwrap(),
         }
     }
 
@@ -267,10 +286,10 @@ impl<'input> Lexer<'input> {
     fn is_start_operator_char(&self, c: char) -> bool {
         match c {
             '{' | '}' | '*' | '+' | '?' | '.' | '|' | ',' | ';' | '=' | '('
-            | ')' => true,
+            | ')' | '!' | '&' | '<' | '>' => true,
 
             // reserved but not used
-            '&' | '!' | '[' | ']' | '-' | '<' | '>' | '^' => true,
+            '[' | ']' | '-' | '^' => true,
             _ => false,
         }
     }
@@ -418,14 +437,15 @@ impl<'input> Lexer<'input> {
                     // expression which returns a more complicated
                     // description of types than the simple string from typeof.
                     "if" | "while" | "for" | "fn" | "else" | "match"
-                    | "enum" | "return" | "in"
-                    | "typeof" | "structured" | "continue" | "loop"
-                    | "break" | "struct" => Err(self.error(
-                        LexicalErrorKind::ReservedButNotUsedKeyword {
-                            word: String::from(m.as_str()),
-                            end: end,
-                        },
-                    )),
+                    | "enum" | "return" | "in" | "typeof" | "structured"
+                    | "continue" | "loop" | "break" | "struct" => {
+                        Err(self.error(
+                            LexicalErrorKind::ReservedButNotUsedKeyword {
+                                word: String::from(m.as_str()),
+                                end: end,
+                            },
+                        ))
+                    }
 
                     id => Ok((Token::Id(id), end)),
                 }
@@ -522,12 +542,21 @@ impl<'input> Lexer<'input> {
                     "|" => Ok((Token::Pipe, end)),
                     "." => Ok((Token::Dot, end)),
                     "=" => Ok((Token::Equals, end)),
+                    "!" => Ok((Token::Bang, end)),
 
                     "?" => Ok((Token::Question, end)),
                     "??" => Ok((Token::LazyQuestion, end)),
 
-                    ".." | "==" | "||" | "&&" | "=>" | "<" | ">" | ">="
-                    | "<=" | "!=" => Err(self.error(
+                    "==" => Ok((Token::DoubleEq, end)),
+                    "&&" => Ok((Token::And, end)),
+                    "||" => Ok((Token::Or, end)),
+                    "<" => Ok((Token::Lt, end)),
+                    ">" => Ok((Token::Gt, end)),
+                    "<=" => Ok((Token::Le, end)),
+                    ">=" => Ok((Token::Ge, end)),
+                    "!=" => Ok((Token::Ne, end)),
+
+                    ".." | "=>" => Err(self.error(
                         LexicalErrorKind::ReservedButNotUsedOperator {
                             op: String::from(&self.input[start..end]),
                             end: end,
@@ -630,6 +659,16 @@ mod tests {
             (&Token::Let, &Token::Let) => true,
             (&Token::True, &Token::True) => true,
             (&Token::False, &Token::False) => true,
+
+            (&Token::And, &Token::And) => true,
+            (&Token::Or, &Token::Or) => true,
+            (&Token::DoubleEq, &Token::DoubleEq) => true,
+            (&Token::Ne, &Token::Ne) => true,
+            (&Token::Le, &Token::Le) => true,
+            (&Token::Ge, &Token::Ge) => true,
+            (&Token::Lt, &Token::Lt) => true,
+            (&Token::Gt, &Token::Gt) => true,
+            (&Token::Bang, &Token::Bang) => true,
 
             // stupid fixed-epsilon test
             (&Token::FloatLit(ref l), &Token::FloatLit(ref r)) => {
@@ -806,9 +845,6 @@ mod tests {
 
     tokens!(equals_1_, "=", Token::Equals);
 
-    bad_token!(unknown_op_1_, " || ");
-    bad_token!(unknown_op_2_, "   && ");
-    bad_token!(unknown_op_3_, "   == ");
     bad_token!(unknown_op_4_, "  .. ");
 
     //
@@ -850,6 +886,9 @@ mod tests {
 
     bad_token!(regex_lit_3_, r" /fo\/ ");
     bad_token!(regex_lit_4_, r" /fo ");
+    bad_token!(regex_lit_5_, r" '' ");
+    bad_token!(regex_lit_6_, " \"this isnt closed ");
+    bad_token!(regex_lit_7_, " \\x ");
 
     tokens!(
         raw_regex_lit_1_,
@@ -1049,21 +1088,19 @@ mod tests {
     tok_round_trip!(trt_21_, ";");
     tok_round_trip!(trt_22_, "true");
     tok_round_trip!(trt_23_, "false");
+    tok_round_trip!(trt_24_, "&&");
+    tok_round_trip!(trt_25_, "||");
+    tok_round_trip!(trt_26_, "==");
+    tok_round_trip!(trt_27_, "!=");
+    tok_round_trip!(trt_28_, "<=");
+    tok_round_trip!(trt_29_, ">=");
+    tok_round_trip!(trt_30_, "<");
+    tok_round_trip!(trt_31_, ">");
+    tok_round_trip!(trt_32_, "!");
 
     //
     // Specific lexical errors
     //
-
-    lex_error_has!(reserved_1_, "&&", "Reserved operator");
-    lex_error_has!(reserved_2_, "==", "Reserved operator");
-    lex_error_has!(reserved_3_, "||", "Reserved operator");
-    lex_error_has!(reserved_4_, "&&", "Reserved operator");
-    lex_error_has!(reserved_5_, "=>", "Reserved operator");
-    lex_error_has!(reserved_6_, "<", "Reserved operator");
-    lex_error_has!(reserved_7_, ">", "Reserved operator");
-    lex_error_has!(reserved_8_, ">=", "Reserved operator");
-    lex_error_has!(reserved_9_, "<=", "Reserved operator");
-    lex_error_has!(reserved_10_, "!=", "Reserved operator");
 
     lex_error_has!(bad_float_1_, " 5. 0", "as a number");
     tokens!(
