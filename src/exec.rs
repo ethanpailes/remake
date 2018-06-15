@@ -302,7 +302,6 @@ fn eval_(env: &mut EvalEnv, expr: Expr) -> Result<Value, InternalError> {
             env.push_block_env();
             for s in statements {
                 exec(env, s)?;
-                // s.eval(env)?;
             }
             let res = eval_(env, *value)?;
             env.pop_block_env();
@@ -334,6 +333,12 @@ fn exec(env: &mut EvalEnv, s: Statement) -> Result<(), InternalError> {
             let v = eval_(env, *e)?;
             env.bind(id.clone(), v);
             Ok(())
+        }
+        StatementKind::Assign(var, e) => {
+            let span = e.span.clone();
+            let v = eval_(env, *e)?;
+            env.set(var.clone(), v)
+                .map_err(|e| InternalError::new(e, span))
         }
     }
 }
@@ -371,6 +376,17 @@ impl EvalEnv {
                 None => {}
                 // TODO(ethan): drop the clone
                 Some(val) => return Ok(val.clone()),
+            }
+        }
+
+        Err(ErrorKind::NameError { name: var })
+    }
+
+    fn set(&mut self, var: String, v: Value) -> Result<(), ErrorKind> {
+        for env in self.block_envs.iter_mut().rev() {
+            if env.contains_key(&var) {
+                env.insert(var, v);
+                return Ok(());
             }
         }
 
@@ -746,4 +762,58 @@ mod tests {
     eval_fail!(arith_22_, " 're' % 2.0 ", "TypeError");
     eval_fail!(arith_23_, " 're' <*> 2 ", "TypeError");
     eval_fail!(arith_24_, " 're' <+> 2 ", "TypeError");
+
+    //
+    // Assignment
+    //
+
+    eval_to!(
+        assign_1_,
+        r#"
+    let x = 1;
+    x = 2;
+    x
+    "#,
+        Value::Int(2)
+    );
+
+    eval_to!(
+        assign_2_,
+        r#"
+    let x = 1;
+    let y = {
+        x = 2;
+        "thrown out"
+    };
+    x
+    "#,
+        Value::Int(2)
+    );
+
+    eval_to!(
+        assign_3_,
+        r#"
+    let x = 1;
+    {
+        x = 2;
+        x
+    }
+    "#,
+        Value::Int(2)
+    );
+
+    eval_fail!(assign_4_, "x = 1; 2", "NameError");
+
+    eval_fail!(
+        assign_5_,
+        r#"
+    let y = {
+        let x = 1;
+        "thrown out"
+    };
+    x = 1;
+    2
+    "#,
+        "NameError"
+    );
 }

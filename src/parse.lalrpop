@@ -253,5 +253,8 @@ Statement: Statement = {
 StatementKind: StatementKind = {
     "let" <id:"identifier"> "=" <e:Expr0> => {
         StatementKind::LetBinding(String::from(id), e)
-    }
+    },
+    <id:"identifier"> "=" <e:Expr0> => {
+        StatementKind::Assign(String::from(id), e)
+    },
 };

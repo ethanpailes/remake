@@ -110,6 +110,7 @@ impl Statement {
 #[derive(Debug, Clone)]
 pub enum StatementKind {
     LetBinding(String, Box<Expr>),
+    Assign(String, Box<Expr>),
 }
 
 #[derive(Debug, Clone)]
