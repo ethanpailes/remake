@@ -697,8 +697,21 @@ mod tests {
     );
     eval_to!(
         prim_cmp_34_,
-        " false && true ",
+        " true && false ",
         Value::Bool(false)
+    );
+
+    eval_fail!(prim_cmp_35_, " /regex/ > /regex/ ", "TypeError");
+    eval_fail!(prim_cmp_36_, " /regex/ < /regex/ ", "TypeError");
+    eval_fail!(
+        prim_cmp_37_,
+        " /regex/ <= /regex/ ",
+        "TypeError"
+    );
+    eval_fail!(
+        prim_cmp_48_,
+        " /regex/ >= /regex/ ",
+        "TypeError"
     );
 
     //
@@ -723,4 +736,14 @@ mod tests {
     eval_fail!(arith_14_, " 3 % 2.0 ", "TypeError");
     eval_fail!(arith_15_, " 1.0 <*> 2 ", "TypeError");
     eval_fail!(arith_16_, " \"str\" <+> 2 ", "TypeError");
+
+    eval_to!(arith_17_, " -2 ", Value::Int(-2));
+    eval_to!(arith_18_, " -2.0 ", Value::Float(-2.0));
+
+    eval_fail!(arith_19_, " /re/ <+> 2.0 ", "TypeError");
+    eval_fail!(arith_20_, " /re/ - 2 ", "TypeError");
+    eval_fail!(arith_21_, " /re/ </> 2.0 ", "TypeError");
+    eval_fail!(arith_22_, " 're' % 2.0 ", "TypeError");
+    eval_fail!(arith_23_, " 're' <*> 2 ", "TypeError");
+    eval_fail!(arith_24_, " 're' <+> 2 ", "TypeError");
 }

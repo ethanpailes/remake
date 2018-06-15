@@ -76,7 +76,15 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::RegexLit(ref re_src) => write!(f, "/{}/", re_src),
             &Token::RawRegexLit(ref re_src) => write!(f, "'{}'", re_src),
             &Token::IntLit(ref num) => write!(f, "{}", num),
-            &Token::FloatLit(ref num) => write!(f, "{}", num),
+            &Token::FloatLit(ref num) => {
+                // HACK: I couldn't figure out how to ask rust for
+                // a floating point format with at least one decimal place.
+                let mut s = format!("{}", num);
+                if !s.contains('.') {
+                    s.push_str(".0");
+                }
+                write!(f, "{}", s)
+            }
             &Token::StringLit(ref s) => write!(f, "\"{}\"", s),
 
             &Token::Id(ref id) => write!(f, "identifier: {}", id),
@@ -715,19 +723,6 @@ mod tests {
         }
     }
 
-    macro_rules! bad_token {
-        ($fn_name:ident, $remake_source:expr) => {
-            #[test]
-            fn $fn_name() {
-                let tokens = Lexer::new($remake_source)
-                    .map(|tok| tok.map(|(_, t, _)| t))
-                    .collect::<Result<Vec<_>, _>>();
-
-                assert!(!tokens.is_ok(), "tokens={:?}", tokens);
-            }
-        };
-    }
-
     macro_rules! lex_error_has {
         ($fn_name:ident, $remake_source:expr, $lex_err:expr) => {
             #[test]
@@ -863,7 +858,8 @@ mod tests {
 
     tokens!(equals_1_, "=", Token::Equals);
 
-    bad_token!(unknown_op_4_, "  .. ");
+    lex_error_has!(unknown_op_4_, "  .. ", "Reserved operator");
+    lex_error_has!(unknown_op_5_, "  loop ", "Reserved keyword");
 
     //
     // keywords
@@ -902,11 +898,20 @@ mod tests {
         Token::RegexLit("fo/o".to_string())
     );
 
-    bad_token!(regex_lit_3_, r" /fo\/ ");
-    bad_token!(regex_lit_4_, r" /fo ");
-    bad_token!(regex_lit_5_, r" '' ");
-    bad_token!(regex_lit_6_, " \"this isnt closed ");
-    bad_token!(regex_lit_7_, " \\x ");
+    lex_error_has!(
+        regex_lit_3_,
+        r" /fo\/ ",
+        "Unclosed regex literal"
+    );
+    lex_error_has!(regex_lit_4_, r" /fo ", "Unclosed regex literal");
+    lex_error_has!(regex_lit_5_, r" '' ", "Empty raw regex literal");
+    lex_error_has!(
+        regex_lit_6_,
+        " \"this isnt closed ",
+        "Unclosed string"
+    );
+    lex_error_has!(regex_lit_7_, " \"\\x\" ", "Unknown escape");
+    lex_error_has!(regex_lit_8_, " \\ ", "Unexpected char");
 
     tokens!(
         raw_regex_lit_1_,
@@ -921,11 +926,14 @@ mod tests {
         Token::RawRegexLit(r"\")
     );
 
-    bad_token!(raw_regex_lit_3_, r" '' "); // no empty allowed
-    bad_token!(raw_regex_lit_4_, r" 'blah  ");
+    lex_error_has!(
+        raw_regex_lit_4_,
+        r" 'blah  ",
+        "Unclosed raw regex literal"
+    );
 
-    bad_token!(raw_regex_lit_5_, r"a'");
-    bad_token!(raw_regex_lit_6_, r"'");
+    lex_error_has!(raw_regex_lit_5_, r"a'", "Unclosed raw");
+    lex_error_has!(raw_regex_lit_6_, r"'", "Unclosed raw");
 
     //
     // Comments
@@ -987,6 +995,12 @@ mod tests {
         Token::Cap
     );
 
+    lex_error_has!(
+        comments_6_,
+        "/* unclosed",
+        "Unclosed block comment"
+    );
+
     //
     // Numbers
     //
@@ -997,7 +1011,11 @@ mod tests {
         Token::IntLit(56),
         Token::IntLit(98)
     );
-    bad_token!(num_2_, r" 56999999999999999999999 ");
+    lex_error_has!(
+        num_2_,
+        r" 56999999999999999999999 ",
+        "number too large"
+    );
     tokens!(num_3_, r" 56,", Token::IntLit(56), Token::Comma);
     tokens!(num_4_, r" 5", Token::IntLit(5));
     tokens!(num_5_, r" 5 ", Token::IntLit(5));
@@ -1120,6 +1138,9 @@ mod tests {
     tok_round_trip!(trt_36_, "</>");
     tok_round_trip!(trt_37_, "<+>");
     tok_round_trip!(trt_38_, "<*>");
+    tok_round_trip!(trt_39_, "3.0");
+    tok_round_trip!(trt_40_, "\"str\"");
+    tok_round_trip!(trt_41_, "'re'");
 
     //
     // Specific lexical errors
