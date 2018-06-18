@@ -126,6 +126,13 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
                     actual
                 )?,
             },
+            &ZeroDivisionError { ref neum } => {
+                writeln!(
+                    f,
+                    "ZeroDivisionError: tried to divide {} by zero",
+                    neum
+                )?;
+            }
             &FinalValueNotRegex { ref actual } => {
                 writeln!(
                     f,
@@ -169,6 +176,9 @@ pub enum ErrorKind {
     TypeError {
         actual: String,
         expected: Vec<String>,
+    },
+    ZeroDivisionError {
+        neum: String,
     },
     FinalValueNotRegex {
         actual: String,

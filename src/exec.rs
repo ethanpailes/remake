@@ -6,7 +6,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ops::Deref;
+use std::rc::Rc;
 
 use regex_syntax;
 use regex_syntax::ast::{GroupKind, RepetitionKind};
@@ -42,8 +45,9 @@ impl Value {
     }
 }
 
-pub fn eval(expr: Expr) -> Result<Value, InternalError> {
+pub fn eval(expr: &Expr) -> Result<Value, InternalError> {
     eval_(&mut EvalEnv::new(), expr)
+        .map(|v| Rc::try_unwrap(v).unwrap().into_inner())
 }
 
 macro_rules! type_error {
@@ -58,285 +62,359 @@ macro_rules! type_error {
     }
 }
 
-/// Evaluate an expression and return the inner type of the
-/// resulting value if it matches the given type.
-macro_rules! expect_type {
-    ($env:expr, $expr:expr,"regex") => {{
-        let e = $expr;
-        let expr_span = e.span.clone();
-        match eval_($env, e)? {
-            Value::Regex(re) => re,
-            val => return type_error!(val, expr_span, "regex"),
+macro_rules! type_guard {
+    ($val:expr, $span:expr, $($expected:expr),* ) => {
+        let ty = $val.type_of();
+        if $((ty != $expected) &&)* true {
+            return type_error!($val, $span, $($expected),*);
         }
-    }};
-    ($env:expr, $expr:expr,"str") => {{
-        let e = $expr;
-        let expr_span = e.span.clone();
-        match eval_($env, e)? {
-            Value::Str(s) => s,
-            val => return type_error!(val, expr_span, "str"),
-        }
-    }};
-    ($env:expr, $expr:expr,"int") => {{
-        let e = $expr;
-        let expr_span = e.span.clone();
-        match eval_($env, e)? {
-            Value::Int(i) => i,
-            val => return type_error!(val, expr_span, "int"),
-        }
-    }};
-    ($env:expr, $expr:expr,"float") => {{
-        let e = $expr;
-        let expr_span = e.span.clone();
-        match eval_($env, e)? {
-            Value::Float(i) => i,
-            val => return type_error!(val, expr_span, "float"),
-        }
-    }};
-    ($env:expr, $expr:expr,"bool") => {{
-        let e = $expr;
-        let expr_span = e.span.clone();
-        match eval_($env, e)? {
-            Value::Bool(b) => b,
-            val => return type_error!(val, expr_span, "bool"),
-        }
-    }};
+    }
 }
 
-fn eval_(env: &mut EvalEnv, expr: Expr) -> Result<Value, InternalError> {
-    match expr.kind {
-        ExprKind::RegexLiteral(r) => Ok(Value::Regex(r)),
+fn eval_(
+    env: &mut EvalEnv,
+    expr: &Expr,
+) -> Result<Rc<RefCell<Value>>, InternalError> {
+    fn ok(val: Value) -> Result<Rc<RefCell<Value>>, InternalError> {
+        Ok(Rc::new(RefCell::new(val)))
+    }
 
-        ExprKind::BinOp(lhs, op, rhs) => match op {
-            BOp::Concat => {
-                let expr_span = lhs.span.clone();
-                match eval_(env, *lhs)? {
-                    Value::Regex(re) => Ok(Value::Regex(re_operators::concat(
-                        re,
-                        expect_type!(env, *rhs, "regex"),
-                    ))),
-                    Value::Str(s1) => {
-                        let s2 = expect_type!(env, *rhs, "str");
-                        let mut s = String::with_capacity(s1.len() + s2.len());
-                        s.push_str(&s1);
-                        s.push_str(&s2);
-                        Ok(Value::Str(s))
+    match expr.kind {
+        ExprKind::RegexLiteral(ref r) => ok(Value::Regex(r.clone())),
+        ExprKind::BoolLiteral(ref b) => ok(Value::Bool(b.clone())),
+        ExprKind::IntLiteral(ref i) => ok(Value::Int(i.clone())),
+        ExprKind::FloatLiteral(ref f) => ok(Value::Float(f.clone())),
+        ExprKind::StringLiteral(ref s) => ok(Value::Str(s.clone())),
+
+        ExprKind::BinOp(ref l_expr, ref op, ref r_expr) => match op {
+            &BOp::Concat => {
+                let l_val = eval_(env, l_expr)?;
+                let l_val = l_val.borrow();
+                type_guard!(l_val, l_expr.span.clone(), "regex", "str");
+
+                let r_val = eval_(env, r_expr)?;
+                let r_val = r_val.borrow();
+
+                match (l_val.deref(), r_val.deref()) {
+                    (&Value::Regex(ref l), &Value::Regex(ref r)) => {
+                        ok(Value::Regex(re_operators::concat(
+                            l.clone(),
+                            r.clone(),
+                        )))
                     }
-                    val => type_error!(val, expr_span, "regex", "str"),
+                    (&Value::Regex(_), _) => {
+                        type_error!(r_val, r_expr.span.clone(), "regex")
+                    }
+
+                    (&Value::Str(ref l), &Value::Str(ref r)) => {
+                        let mut s = String::with_capacity(l.len() + r.len());
+                        s.push_str(l);
+                        s.push_str(r);
+                        ok(Value::Str(s))
+                    }
+                    (&Value::Str(_), _) => {
+                        type_error!(r_val, r_expr.span.clone(), "str")
+                    }
+
+                    _ => unreachable!("Bug in remake - concat."),
                 }
             }
-            BOp::Alt => Ok(Value::Regex(re_operators::alt(
-                expect_type!(env, *lhs, "regex"),
-                expect_type!(env, *rhs, "regex"),
-            ))),
+
+            BOp::Alt => {
+                let l_val = eval_(env, l_expr)?;
+                let l_val = l_val.borrow();
+                type_guard!(l_val, l_expr.span.clone(), "regex");
+
+                let r_val = eval_(env, r_expr)?;
+                let r_val = r_val.borrow();
+
+                match (l_val.deref(), r_val.deref()) {
+                    (&Value::Regex(ref l), &Value::Regex(ref r)) => ok(
+                        Value::Regex(re_operators::alt(l.clone(), r.clone())),
+                    ),
+                    (&Value::Regex(_), _) => {
+                        type_error!(r_val, r_expr.span.clone(), "regex")
+                    }
+
+                    _ => unreachable!("Bug in remake - alt"),
+                }
+            }
 
             // comparison operators
-            BOp::Equals => Ok(Value::Bool(eval_equals(env, lhs, rhs)?)),
-            BOp::Ne => Ok(Value::Bool(!eval_equals(env, lhs, rhs)?)),
-            BOp::Lt => Ok(Value::Bool(eval_lt(env, lhs, rhs)?)),
-            BOp::Gt => Ok(Value::Bool(eval_gt(env, lhs, rhs)?)),
-            BOp::Le => Ok(Value::Bool(eval_le(env, lhs, rhs)?)),
-            BOp::Ge => Ok(Value::Bool(eval_ge(env, lhs, rhs)?)),
-            BOp::Or => Ok(Value::Bool(
-                expect_type!(env, *lhs, "bool")
-                    || expect_type!(env, *rhs, "bool"),
-            )),
-            BOp::And => Ok(Value::Bool(
-                expect_type!(env, *lhs, "bool")
-                    && expect_type!(env, *rhs, "bool"),
-            )),
+            BOp::Equals => ok(Value::Bool(eval_equals(env, l_expr, r_expr)?)),
+            BOp::Ne => ok(Value::Bool(!eval_equals(env, l_expr, r_expr)?)),
+            BOp::Lt => ok(Value::Bool(eval_lt(env, l_expr, r_expr)?)),
+            BOp::Gt => ok(Value::Bool(eval_gt(env, l_expr, r_expr)?)),
+            BOp::Le => ok(Value::Bool(eval_le(env, l_expr, r_expr)?)),
+            BOp::Ge => ok(Value::Bool(eval_ge(env, l_expr, r_expr)?)),
+            BOp::Or => {
+                let l_val = eval_(env, l_expr)?;
+                let l_val = l_val.borrow();
+                type_guard!(l_val, l_expr.span.clone(), "bool");
 
-            // arith operators
-            BOp::Plus => {
-                let span = lhs.span.clone();
-                match eval_(env, *lhs)? {
-                    Value::Int(i) => {
-                        Ok(Value::Int(i + expect_type!(env, *rhs, "int")))
+                let r_val = eval_(env, r_expr)?;
+                let r_val = r_val.borrow();
+
+                match (l_val.deref(), r_val.deref()) {
+                    (&Value::Bool(ref l), &Value::Bool(ref r)) => {
+                        ok(Value::Bool(*l || *r))
                     }
-                    Value::Float(f) => Ok(Value::Float(
-                        f + expect_type!(env, *rhs, "float"),
-                    )),
-                    val => type_error!(val, span, "int", "float"),
+                    (&Value::Bool(_), _) => {
+                        type_error!(r_val, r_expr.span.clone(), "bool")
+                    }
+
+                    _ => unreachable!("Bug in remake - or"),
+                }
+            }
+            BOp::And => {
+                let l_val = eval_(env, l_expr)?;
+                let l_val = l_val.borrow();
+                type_guard!(l_val, l_expr.span.clone(), "bool");
+
+                let r_val = eval_(env, r_expr)?;
+                let r_val = r_val.borrow();
+
+                match (l_val.deref(), r_val.deref()) {
+                    (&Value::Bool(ref l), &Value::Bool(ref r)) => {
+                        ok(Value::Bool(*l && *r))
+                    }
+                    (&Value::Bool(_), _) => {
+                        type_error!(r_val, r_expr.span.clone(), "bool")
+                    }
+
+                    _ => unreachable!("Bug in remake - and"),
+                }
+            }
+
+            BOp::Plus => {
+                let l_val = eval_(env, l_expr)?;
+                let l_val = l_val.borrow();
+                type_guard!(l_val, l_expr.span.clone(), "int", "float");
+
+                let r_val = eval_(env, r_expr)?;
+                let r_val = r_val.borrow();
+
+                match (l_val.deref(), r_val.deref()) {
+                    (&Value::Int(ref l), &Value::Int(ref r)) => {
+                        ok(Value::Int(*l + *r))
+                    }
+                    (&Value::Int(_), _) => {
+                        type_error!(r_val, r_expr.span.clone(), "int")
+                    }
+
+                    (&Value::Float(ref l), &Value::Float(ref r)) => {
+                        ok(Value::Float(*l + *r))
+                    }
+                    (&Value::Float(_), _) => {
+                        type_error!(r_val, r_expr.span.clone(), "float")
+                    }
+
+                    _ => unreachable!("Bug in remake - plus"),
                 }
             }
             BOp::Minus => {
-                let span = lhs.span.clone();
-                match eval_(env, *lhs)? {
-                    Value::Int(i) => {
-                        Ok(Value::Int(i - expect_type!(env, *rhs, "int")))
+                let l_val = eval_(env, l_expr)?;
+                let l_val = l_val.borrow();
+                type_guard!(l_val, l_expr.span.clone(), "int", "float");
+
+                let r_val = eval_(env, r_expr)?;
+                let r_val = r_val.borrow();
+
+                match (l_val.deref(), r_val.deref()) {
+                    (&Value::Int(ref l), &Value::Int(ref r)) => {
+                        ok(Value::Int(*l - *r))
                     }
-                    Value::Float(f) => Ok(Value::Float(
-                        f - expect_type!(env, *rhs, "float"),
-                    )),
-                    val => type_error!(val, span, "int", "float"),
+                    (&Value::Int(_), _) => {
+                        type_error!(r_val, r_expr.span.clone(), "int")
+                    }
+
+                    (&Value::Float(ref l), &Value::Float(ref r)) => {
+                        ok(Value::Float(*l - *r))
+                    }
+                    (&Value::Float(_), _) => {
+                        type_error!(r_val, r_expr.span.clone(), "float")
+                    }
+
+                    _ => unreachable!("Bug in remake - minus"),
                 }
             }
             BOp::Div => {
-                let span = lhs.span.clone();
-                match eval_(env, *lhs)? {
-                    Value::Int(i) => {
-                        Ok(Value::Int(i / expect_type!(env, *rhs, "int")))
+                let l_val = eval_(env, l_expr)?;
+                let l_val = l_val.borrow();
+                type_guard!(l_val, l_expr.span.clone(), "int", "float");
+
+                let r_val = eval_(env, r_expr)?;
+                let r_val = r_val.borrow();
+
+                match (l_val.deref(), r_val.deref()) {
+                    (&Value::Int(ref l), &Value::Int(ref r)) => {
+                        if *r == 0 {
+                            return Err(InternalError::new(
+                                ErrorKind::ZeroDivisionError {
+                                    neum: format!("{}", l),
+                                },
+                                expr.span.clone(),
+                            ));
+                        }
+                        ok(Value::Int(*l / *r))
                     }
-                    Value::Float(f) => Ok(Value::Float(
-                        f / expect_type!(env, *rhs, "float"),
-                    )),
-                    val => type_error!(val, span, "int", "float"),
+                    (&Value::Int(_), _) => {
+                        type_error!(r_val, r_expr.span.clone(), "int")
+                    }
+
+                    (&Value::Float(ref l), &Value::Float(ref r)) => {
+                        if *r == 0.0 {
+                            return Err(InternalError::new(
+                                ErrorKind::ZeroDivisionError {
+                                    neum: format!("{}", l),
+                                },
+                                expr.span.clone(),
+                            ));
+                        }
+                        ok(Value::Float(*l / *r))
+                    }
+                    (&Value::Float(_), _) => {
+                        type_error!(r_val, r_expr.span.clone(), "float")
+                    }
+
+                    _ => unreachable!("Bug in remake - div"),
                 }
             }
             BOp::Times => {
-                let span = lhs.span.clone();
-                match eval_(env, *lhs)? {
-                    Value::Int(i) => {
-                        Ok(Value::Int(i * expect_type!(env, *rhs, "int")))
+                let l_val = eval_(env, l_expr)?;
+                let l_val = l_val.borrow();
+                type_guard!(l_val, l_expr.span.clone(), "int", "float");
+
+                let r_val = eval_(env, r_expr)?;
+                let r_val = r_val.borrow();
+
+                match (l_val.deref(), r_val.deref()) {
+                    (&Value::Int(ref l), &Value::Int(ref r)) => {
+                        ok(Value::Int((*l) * (*r)))
                     }
-                    Value::Float(f) => Ok(Value::Float(
-                        f * expect_type!(env, *rhs, "float"),
-                    )),
-                    val => type_error!(val, span, "int", "float"),
+                    (&Value::Int(_), _) => {
+                        type_error!(r_val, r_expr.span.clone(), "int")
+                    }
+
+                    (&Value::Float(ref l), &Value::Float(ref r)) => {
+                        ok(Value::Float((*l) * (*r)))
+                    }
+                    (&Value::Float(_), _) => {
+                        type_error!(r_val, r_expr.span.clone(), "float")
+                    }
+
+                    _ => unreachable!("Bug in remake - times"),
                 }
             }
             BOp::Mod => {
-                let span = lhs.span.clone();
-                match eval_(env, *lhs)? {
-                    Value::Int(i) => {
-                        Ok(Value::Int(i % expect_type!(env, *rhs, "int")))
+                let l_val = eval_(env, l_expr)?;
+                let l_val = l_val.borrow();
+                type_guard!(l_val, l_expr.span.clone(), "int", "float");
+
+                let r_val = eval_(env, r_expr)?;
+                let r_val = r_val.borrow();
+
+                match (l_val.deref(), r_val.deref()) {
+                    (&Value::Int(ref l), &Value::Int(ref r)) => {
+                        ok(Value::Int(*l % *r))
                     }
-                    Value::Float(f) => Ok(Value::Float(
-                        f % expect_type!(env, *rhs, "float"),
-                    )),
-                    val => type_error!(val, span, "int", "float"),
+                    (&Value::Int(_), _) => {
+                        type_error!(r_val, r_expr.span.clone(), "int")
+                    }
+
+                    (&Value::Float(ref l), &Value::Float(ref r)) => {
+                        ok(Value::Float(*l % *r))
+                    }
+                    (&Value::Float(_), _) => {
+                        type_error!(r_val, r_expr.span.clone(), "float")
+                    }
+
+                    _ => unreachable!("Bug in remake - mod"),
                 }
             }
         },
 
-        ExprKind::UnaryOp(op, e) => match op {
-            UOp::Not => Ok(Value::Bool(!expect_type!(env, *e, "bool"))),
-            UOp::Neg => {
-                let span = e.span.clone();
-                match eval_(env, *e)? {
-                    Value::Int(i) => Ok(Value::Int(-i)),
-                    Value::Float(f) => Ok(Value::Float(-f)),
-                    val => type_error!(val, span, "int", "float"),
-                }
-            }
-            UOp::RepeatZeroOrMore(greedy) => Ok(Value::Regex(Box::new(
-                regex_syntax::ast::Ast::Repetition(
-                    regex_syntax::ast::Repetition {
-                        span: POISON_SPAN,
-                        op: regex_syntax::ast::RepetitionOp {
-                            span: POISON_SPAN,
-                            kind: RepetitionKind::ZeroOrMore,
-                        },
-                        greedy: greedy,
-                        ast: Box::new(noncapturing_group(expect_type!(
-                            env, *e, "regex"
-                        ))),
-                    },
-                ),
-            ))),
-            UOp::RepeatOneOrMore(greedy) => Ok(Value::Regex(Box::new(
-                regex_syntax::ast::Ast::Repetition(
-                    regex_syntax::ast::Repetition {
-                        span: POISON_SPAN,
-                        op: regex_syntax::ast::RepetitionOp {
-                            span: POISON_SPAN,
-                            kind: RepetitionKind::OneOrMore,
-                        },
-                        greedy: greedy,
-                        ast: Box::new(noncapturing_group(expect_type!(
-                            env, *e, "regex"
-                        ))),
-                    },
-                ),
-            ))),
-            UOp::RepeatZeroOrOne(greedy) => Ok(Value::Regex(Box::new(
-                regex_syntax::ast::Ast::Repetition(
-                    regex_syntax::ast::Repetition {
-                        span: POISON_SPAN,
-                        op: regex_syntax::ast::RepetitionOp {
-                            span: POISON_SPAN,
-                            kind: RepetitionKind::ZeroOrOne,
-                        },
-                        greedy: greedy,
-                        ast: Box::new(noncapturing_group(expect_type!(
-                            env, *e, "regex"
-                        ))),
-                    },
-                ),
-            ))),
-            UOp::RepeatRange(greedy, range) => Ok(Value::Regex(Box::new(
-                regex_syntax::ast::Ast::Repetition(
-                    regex_syntax::ast::Repetition {
-                        span: POISON_SPAN,
-                        op: regex_syntax::ast::RepetitionOp {
-                            span: POISON_SPAN,
-                            kind: RepetitionKind::Range(range),
-                        },
-                        greedy: greedy,
-                        ast: Box::new(noncapturing_group(expect_type!(
-                            env, *e, "regex"
-                        ))),
-                    },
-                ),
-            ))),
-        },
+        ExprKind::UnaryOp(ref op, ref e) => {
+            let e_val = eval_(env, e)?;
+            let e_val = e_val.borrow();
 
-        ExprKind::Capture(e, name) => Ok(Value::Regex(Box::new(
-            regex_syntax::ast::Ast::Group(regex_syntax::ast::Group {
-                span: POISON_SPAN,
-                kind: match name {
-                    Some(n) => {
-                        GroupKind::CaptureName(regex_syntax::ast::CaptureName {
-                            span: POISON_SPAN,
-                            name: n,
-                            index: BOGUS_GROUP_INDEX,
-                        })
-                    }
-                    None => GroupKind::CaptureIndex(BOGUS_GROUP_INDEX),
+            match op {
+                UOp::Not => match e_val.deref() {
+                    &Value::Bool(ref b) => ok(Value::Bool(!*b)),
+                    _ => type_error!(e_val, e.span.clone(), "bool"),
                 },
-                ast: expect_type!(env, *e, "regex"),
-            }),
-        ))),
+                UOp::Neg => match e_val.deref() {
+                    &Value::Int(ref i) => ok(Value::Int(-*i)),
+                    &Value::Float(ref f) => ok(Value::Float(-*f)),
+                    _ => type_error!(e_val, e.span.clone(), "int", "float"),
+                },
+                UOp::RepeatZeroOrMore(ref greedy) => match e_val.deref() {
+                    &Value::Regex(ref re) => {
+                        ok(rep_zero_or_more(re.clone(), *greedy))
+                    }
+                    _ => type_error!(e_val, e.span.clone(), "regex"),
+                },
+                UOp::RepeatOneOrMore(ref greedy) => match e_val.deref() {
+                    &Value::Regex(ref re) => {
+                        ok(rep_one_or_more(re.clone(), *greedy))
+                    }
+                    _ => type_error!(e_val, e.span.clone(), "regex"),
+                },
+                UOp::RepeatZeroOrOne(ref greedy) => match e_val.deref() {
+                    &Value::Regex(ref re) => {
+                        ok(rep_zero_or_one(re.clone(), *greedy))
+                    }
+                    _ => type_error!(e_val, e.span.clone(), "regex"),
+                },
+                UOp::RepeatRange(ref greedy, ref range) => {
+                    match e_val.deref() {
+                        &Value::Regex(ref re) => {
+                            ok(rep_range(re.clone(), *greedy, range.clone()))
+                        }
+                        _ => type_error!(e_val, e.span.clone(), "regex"),
+                    }
+                }
+            }
+        }
 
-        ExprKind::Block(statements, value) => {
+        ExprKind::Capture(ref e, ref name) => {
+            let e_val = eval_(env, e)?;
+            let e_val = e_val.borrow();
+
+            match e_val.deref() {
+                &Value::Regex(ref re) => ok(capture(re.clone(), name.clone())),
+                _ => type_error!(e_val, e.span.clone(), "regex"),
+            }
+        }
+
+        ExprKind::Block(ref statements, ref value) => {
             env.push_block_env();
             for s in statements {
                 exec(env, s)?;
             }
-            let res = eval_(env, *value)?;
+            let res = eval_(env, value)?;
             env.pop_block_env();
 
             Ok(res)
         }
 
-        ExprKind::Var(var) => {
-            let span = expr.span;
-            env.lookup(var)
-                .map_err(|e| InternalError::new(e, span))
-        }
+        ExprKind::Var(ref var) => env.lookup(var)
+            .map_err(|e| InternalError::new(e, expr.span.clone())),
 
-        ExprKind::IntLiteral(i) => Ok(Value::Int(i)),
-
-        ExprKind::FloatLiteral(f) => Ok(Value::Float(f)),
-
-        ExprKind::StringLiteral(s) => Ok(Value::Str(s)),
-
-        ExprKind::BoolLiteral(b) => Ok(Value::Bool(b)),
-
-        ExprKind::ExprPoison => panic!("Bug in remake."),
+        ExprKind::ExprPoison => panic!("Bug in remake - poison expr"),
     }
 }
 
-fn exec(env: &mut EvalEnv, s: Statement) -> Result<(), InternalError> {
+fn exec(env: &mut EvalEnv, s: &Statement) -> Result<(), InternalError> {
     match s.kind {
-        StatementKind::LetBinding(id, e) => {
-            let v = eval_(env, *e)?;
+        StatementKind::LetBinding(ref id, ref e) => {
+            let v = eval_(env, &*e)?;
             env.bind(id.clone(), v);
             Ok(())
         }
-        StatementKind::Assign(var, e) => {
+        StatementKind::Assign(ref var, ref e) => {
             let span = e.span.clone();
-            let v = eval_(env, *e)?;
+            let v = eval_(env, &*e)?;
             env.set(var.clone(), v)
                 .map_err(|e| InternalError::new(e, span))
         }
@@ -344,11 +422,281 @@ fn exec(env: &mut EvalEnv, s: Statement) -> Result<(), InternalError> {
 }
 
 //
+// Utils
+//
+
+fn eval_equals(
+    env: &mut EvalEnv,
+    l_expr: &Expr,
+    r_expr: &Expr,
+) -> Result<bool, InternalError> {
+    let l_val = eval_(env, l_expr)?;
+    let l_val = l_val.borrow();
+
+    let r_val = eval_(env, r_expr)?;
+    let r_val = r_val.borrow();
+
+    match (l_val.deref(), r_val.deref()) {
+        (&Value::Regex(ref l), &Value::Regex(ref r)) => Ok(*l == *r),
+        (&Value::Regex(_), _) => {
+            type_error!(r_val, r_expr.span.clone(), "regex")
+        }
+
+        (&Value::Str(ref l), &Value::Str(ref r)) => Ok(*l == *r),
+        (&Value::Str(_), _) => type_error!(r_val, r_expr.span.clone(), "str"),
+
+        (&Value::Int(ref l), &Value::Int(ref r)) => Ok(*l == *r),
+        (&Value::Int(_), _) => type_error!(r_val, r_expr.span.clone(), "int"),
+
+        (&Value::Float(ref l), &Value::Float(ref r)) => {
+            Ok((*l - *r).abs() < FLOAT_EQ_EPSILON)
+        }
+        (&Value::Float(_), _) => {
+            type_error!(r_val, r_expr.span.clone(), "float")
+        }
+
+        (&Value::Bool(ref l), &Value::Bool(ref r)) => Ok(*l == *r),
+        (&Value::Bool(_), _) => type_error!(r_val, r_expr.span.clone(), "bool"),
+    }
+}
+
+fn eval_lt(
+    env: &mut EvalEnv,
+    l_expr: &Expr,
+    r_expr: &Expr,
+) -> Result<bool, InternalError> {
+    let l_val = eval_(env, l_expr)?;
+    let l_val = l_val.borrow();
+    type_guard!(
+        l_val,
+        l_expr.span.clone(),
+        "int",
+        "float",
+        "str",
+        "bool"
+    );
+
+    let r_val = eval_(env, r_expr)?;
+    let r_val = r_val.borrow();
+
+    match (l_val.deref(), r_val.deref()) {
+        (&Value::Str(ref l), &Value::Str(ref r)) => Ok(l < r),
+        (&Value::Str(_), _) => type_error!(r_val, r_expr.span.clone(), "str"),
+
+        (&Value::Int(ref l), &Value::Int(ref r)) => Ok(l < r),
+        (&Value::Int(_), _) => type_error!(r_val, r_expr.span.clone(), "int"),
+
+        (&Value::Float(ref l), &Value::Float(ref r)) => Ok(l < r),
+        (&Value::Float(_), _) => {
+            type_error!(r_val, r_expr.span.clone(), "float")
+        }
+
+        (&Value::Bool(ref l), &Value::Bool(ref r)) => Ok(l < r),
+        (&Value::Bool(_), _) => type_error!(r_val, r_expr.span.clone(), "bool"),
+
+        _ => unreachable!("Bug in remake - lt"),
+    }
+}
+
+fn eval_gt(
+    env: &mut EvalEnv,
+    l_expr: &Expr,
+    r_expr: &Expr,
+) -> Result<bool, InternalError> {
+    let l_val = eval_(env, l_expr)?;
+    let l_val = l_val.borrow();
+    type_guard!(
+        l_val,
+        l_expr.span.clone(),
+        "int",
+        "float",
+        "str",
+        "bool"
+    );
+
+    let r_val = eval_(env, r_expr)?;
+    let r_val = r_val.borrow();
+
+    match (l_val.deref(), r_val.deref()) {
+        (&Value::Str(ref l), &Value::Str(ref r)) => Ok(l > r),
+        (&Value::Str(_), _) => type_error!(r_val, r_expr.span.clone(), "str"),
+
+        (&Value::Int(ref l), &Value::Int(ref r)) => Ok(l > r),
+        (&Value::Int(_), _) => type_error!(r_val, r_expr.span.clone(), "int"),
+
+        (&Value::Float(ref l), &Value::Float(ref r)) => Ok(l > r),
+        (&Value::Float(_), _) => {
+            type_error!(r_val, r_expr.span.clone(), "float")
+        }
+
+        (&Value::Bool(ref l), &Value::Bool(ref r)) => Ok(l > r),
+        (&Value::Bool(_), _) => type_error!(r_val, r_expr.span.clone(), "bool"),
+
+        _ => unreachable!("Bug in remake - gt"),
+    }
+}
+
+fn eval_le(
+    env: &mut EvalEnv,
+    l_expr: &Expr,
+    r_expr: &Expr,
+) -> Result<bool, InternalError> {
+    let l_val = eval_(env, l_expr)?;
+    let l_val = l_val.borrow();
+    type_guard!(
+        l_val,
+        l_expr.span.clone(),
+        "int",
+        "float",
+        "str",
+        "bool"
+    );
+
+    let r_val = eval_(env, r_expr)?;
+    let r_val = r_val.borrow();
+
+    match (l_val.deref(), r_val.deref()) {
+        (&Value::Str(ref l), &Value::Str(ref r)) => Ok(l <= r),
+        (&Value::Str(_), _) => type_error!(r_val, r_expr.span.clone(), "str"),
+
+        (&Value::Int(ref l), &Value::Int(ref r)) => Ok(l <= r),
+        (&Value::Int(_), _) => type_error!(r_val, r_expr.span.clone(), "int"),
+
+        (&Value::Float(ref l), &Value::Float(ref r)) => Ok(l <= r),
+        (&Value::Float(_), _) => {
+            type_error!(r_val, r_expr.span.clone(), "float")
+        }
+
+        (&Value::Bool(ref l), &Value::Bool(ref r)) => Ok(l <= r),
+        (&Value::Bool(_), _) => type_error!(r_val, r_expr.span.clone(), "bool"),
+
+        _ => unreachable!("Bug in remake - le"),
+    }
+}
+
+fn eval_ge(
+    env: &mut EvalEnv,
+    l_expr: &Expr,
+    r_expr: &Expr,
+) -> Result<bool, InternalError> {
+    let l_val = eval_(env, l_expr)?;
+    let l_val = l_val.borrow();
+    type_guard!(
+        l_val,
+        l_expr.span.clone(),
+        "int",
+        "float",
+        "str",
+        "bool"
+    );
+
+    let r_val = eval_(env, r_expr)?;
+    let r_val = r_val.borrow();
+
+    match (l_val.deref(), r_val.deref()) {
+        (&Value::Str(ref l), &Value::Str(ref r)) => Ok(l >= r),
+        (&Value::Str(_), _) => type_error!(r_val, r_expr.span.clone(), "str"),
+
+        (&Value::Int(ref l), &Value::Int(ref r)) => Ok(l >= r),
+        (&Value::Int(_), _) => type_error!(r_val, r_expr.span.clone(), "int"),
+
+        (&Value::Float(ref l), &Value::Float(ref r)) => Ok(l >= r),
+        (&Value::Float(_), _) => {
+            type_error!(r_val, r_expr.span.clone(), "float")
+        }
+
+        (&Value::Bool(ref l), &Value::Bool(ref r)) => Ok(l >= r),
+        (&Value::Bool(_), _) => type_error!(r_val, r_expr.span.clone(), "bool"),
+
+        _ => unreachable!("Bug in remake - ge"),
+    }
+}
+
+fn rep_zero_or_more(re: Box<regex_syntax::ast::Ast>, greedy: bool) -> Value {
+    Value::Regex(Box::new(regex_syntax::ast::Ast::Repetition(
+        regex_syntax::ast::Repetition {
+            span: POISON_SPAN,
+            op: regex_syntax::ast::RepetitionOp {
+                span: POISON_SPAN,
+                kind: RepetitionKind::ZeroOrMore,
+            },
+            greedy: greedy,
+            ast: Box::new(noncapturing_group(re)),
+        },
+    )))
+}
+
+fn rep_one_or_more(re: Box<regex_syntax::ast::Ast>, greedy: bool) -> Value {
+    Value::Regex(Box::new(regex_syntax::ast::Ast::Repetition(
+        regex_syntax::ast::Repetition {
+            span: POISON_SPAN,
+            op: regex_syntax::ast::RepetitionOp {
+                span: POISON_SPAN,
+                kind: RepetitionKind::OneOrMore,
+            },
+            greedy: greedy,
+            ast: Box::new(noncapturing_group(re)),
+        },
+    )))
+}
+
+fn rep_zero_or_one(re: Box<regex_syntax::ast::Ast>, greedy: bool) -> Value {
+    Value::Regex(Box::new(regex_syntax::ast::Ast::Repetition(
+        regex_syntax::ast::Repetition {
+            span: POISON_SPAN,
+            op: regex_syntax::ast::RepetitionOp {
+                span: POISON_SPAN,
+                kind: RepetitionKind::ZeroOrOne,
+            },
+            greedy: greedy,
+            ast: Box::new(noncapturing_group(re)),
+        },
+    )))
+}
+
+fn rep_range(
+    re: Box<regex_syntax::ast::Ast>,
+    greedy: bool,
+    range: regex_syntax::ast::RepetitionRange,
+) -> Value {
+    Value::Regex(Box::new(regex_syntax::ast::Ast::Repetition(
+        regex_syntax::ast::Repetition {
+            span: POISON_SPAN,
+            op: regex_syntax::ast::RepetitionOp {
+                span: POISON_SPAN,
+                kind: RepetitionKind::Range(range),
+            },
+            greedy: greedy,
+            ast: Box::new(noncapturing_group(re)),
+        },
+    )))
+}
+
+fn capture(re: Box<regex_syntax::ast::Ast>, name: Option<String>) -> Value {
+    Value::Regex(Box::new(regex_syntax::ast::Ast::Group(
+        regex_syntax::ast::Group {
+            span: POISON_SPAN,
+            kind: match name {
+                Some(n) => {
+                    GroupKind::CaptureName(regex_syntax::ast::CaptureName {
+                        span: POISON_SPAN,
+                        name: n,
+                        index: BOGUS_GROUP_INDEX,
+                    })
+                }
+                None => GroupKind::CaptureIndex(BOGUS_GROUP_INDEX),
+            },
+            ast: re,
+        },
+    )))
+}
+
+//
 // The evaluation environment
 //
 
 struct EvalEnv {
-    block_envs: Vec<HashMap<String, Value>>,
+    block_envs: Vec<HashMap<String, Rc<RefCell<Value>>>>,
 }
 impl EvalEnv {
     fn new() -> Self {
@@ -365,24 +713,29 @@ impl EvalEnv {
         self.block_envs.pop();
     }
 
-    fn bind(&mut self, var: String, v: Value) {
+    fn bind(&mut self, var: String, v: Rc<RefCell<Value>>) {
         let idx = self.block_envs.len() - 1;
         self.block_envs[idx].insert(var, v);
     }
 
-    fn lookup(&self, var: String) -> Result<Value, ErrorKind> {
+    fn lookup(&self, var: &String) -> Result<Rc<RefCell<Value>>, ErrorKind> {
         for env in self.block_envs.iter().rev() {
-            match env.get(&var) {
+            match env.get(var) {
                 None => {}
-                // TODO(ethan): drop the clone
                 Some(val) => return Ok(val.clone()),
             }
         }
 
-        Err(ErrorKind::NameError { name: var })
+        Err(ErrorKind::NameError {
+            name: var.clone(),
+        })
     }
 
-    fn set(&mut self, var: String, v: Value) -> Result<(), ErrorKind> {
+    fn set(
+        &mut self,
+        var: String,
+        v: Rc<RefCell<Value>>,
+    ) -> Result<(), ErrorKind> {
         for env in self.block_envs.iter_mut().rev() {
             if env.contains_key(&var) {
                 env.insert(var, v);
@@ -391,86 +744,6 @@ impl EvalEnv {
         }
 
         Err(ErrorKind::NameError { name: var })
-    }
-}
-
-//
-// Utils
-//
-
-fn eval_equals(
-    env: &mut EvalEnv,
-    lhs: Box<Expr>,
-    rhs: Box<Expr>,
-) -> Result<bool, InternalError> {
-    match eval_(env, *lhs)? {
-        Value::Regex(re) => Ok(re == expect_type!(env, *rhs, "regex")),
-        Value::Int(i) => Ok(i == expect_type!(env, *rhs, "int")),
-        Value::Float(f) => {
-            Ok((f - expect_type!(env, *rhs, "float")).abs() < FLOAT_EQ_EPSILON)
-        }
-        Value::Str(s) => Ok(s == expect_type!(env, *rhs, "str")),
-        Value::Bool(s) => Ok(s == expect_type!(env, *rhs, "bool")),
-    }
-}
-
-fn eval_lt(
-    env: &mut EvalEnv,
-    lhs: Box<Expr>,
-    rhs: Box<Expr>,
-) -> Result<bool, InternalError> {
-    let span = lhs.span.clone();
-    match eval_(env, *lhs)? {
-        Value::Int(i) => Ok(i < expect_type!(env, *rhs, "int")),
-        Value::Float(f) => Ok(f < expect_type!(env, *rhs, "float")),
-        Value::Str(s) => Ok(s < expect_type!(env, *rhs, "str")),
-        Value::Bool(s) => Ok(s < expect_type!(env, *rhs, "bool")),
-        val => type_error!(val, span, "int", "float", "str", "bool"),
-    }
-}
-
-fn eval_gt(
-    env: &mut EvalEnv,
-    lhs: Box<Expr>,
-    rhs: Box<Expr>,
-) -> Result<bool, InternalError> {
-    let span = lhs.span.clone();
-    match eval_(env, *lhs)? {
-        Value::Int(i) => Ok(i > expect_type!(env, *rhs, "int")),
-        Value::Float(f) => Ok(f > expect_type!(env, *rhs, "float")),
-        Value::Str(s) => Ok(s > expect_type!(env, *rhs, "str")),
-        Value::Bool(s) => Ok(s > expect_type!(env, *rhs, "bool")),
-        val => type_error!(val, span, "int", "float", "str", "bool"),
-    }
-}
-
-fn eval_le(
-    env: &mut EvalEnv,
-    lhs: Box<Expr>,
-    rhs: Box<Expr>,
-) -> Result<bool, InternalError> {
-    let span = lhs.span.clone();
-    match eval_(env, *lhs)? {
-        Value::Int(i) => Ok(i <= expect_type!(env, *rhs, "int")),
-        Value::Float(f) => Ok(f <= expect_type!(env, *rhs, "float")),
-        Value::Str(s) => Ok(s <= expect_type!(env, *rhs, "str")),
-        Value::Bool(s) => Ok(s <= expect_type!(env, *rhs, "bool")),
-        val => type_error!(val, span, "int", "float", "str", "bool"),
-    }
-}
-
-fn eval_ge(
-    env: &mut EvalEnv,
-    lhs: Box<Expr>,
-    rhs: Box<Expr>,
-) -> Result<bool, InternalError> {
-    let span = lhs.span.clone();
-    match eval_(env, *lhs)? {
-        Value::Int(i) => Ok(i >= expect_type!(env, *rhs, "int")),
-        Value::Float(f) => Ok(f >= expect_type!(env, *rhs, "float")),
-        Value::Str(s) => Ok(s >= expect_type!(env, *rhs, "str")),
-        Value::Bool(s) => Ok(s >= expect_type!(env, *rhs, "bool")),
-        val => type_error!(val, span, "int", "float", "str", "bool"),
     }
 }
 
@@ -517,7 +790,7 @@ mod tests {
             fn $test_name() {
                 let parser = BlockBodyParser::new();
                 let lexer = lex::Lexer::new($remake_src);
-                let expr = eval(parser.parse(lexer).unwrap()).unwrap();
+                let expr = eval(&parser.parse(lexer).unwrap()).unwrap();
 
                 assert!(
                     test_eq(&$expected_value, &expr),
@@ -536,7 +809,7 @@ mod tests {
             fn $test_name() {
                 let parser = BlockBodyParser::new();
                 let lexer = lex::Lexer::new($remake_src);
-                let expr = eval(parser.parse(lexer).unwrap());
+                let expr = eval(&parser.parse(lexer).unwrap());
 
                 assert!(
                     !expr.is_ok(),
@@ -550,7 +823,7 @@ mod tests {
             fn $test_name() {
                 let parser = BlockBodyParser::new();
                 let lexer = lex::Lexer::new($remake_src);
-                let expr = eval(parser.parse(lexer).unwrap());
+                let expr = eval(&parser.parse(lexer).unwrap());
 
                 match expr {
                     Ok(_) => panic!(
@@ -730,6 +1003,8 @@ mod tests {
         "TypeError"
     );
 
+    eval_to!(prim_cmp_49_, " !true ", Value::Bool(false));
+
     //
     // Arith Ops
     //
@@ -762,6 +1037,8 @@ mod tests {
     eval_fail!(arith_22_, " 're' % 2.0 ", "TypeError");
     eval_fail!(arith_23_, " 're' <*> 2 ", "TypeError");
     eval_fail!(arith_24_, " 're' <+> 2 ", "TypeError");
+
+    eval_fail!(arith_25_, " 19 </> 0", "ZeroDivisionError");
 
     //
     // Assignment

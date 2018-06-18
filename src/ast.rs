@@ -27,7 +27,7 @@ impl Expr {
         }
     }
 
-    pub fn eval(self) -> Result<Value, InternalError> {
+    pub fn eval(&self) -> Result<Value, InternalError> {
         let span = self.span.clone();
         match exec::eval(self)? {
             exec::Value::Regex(re) => Ok(re),
