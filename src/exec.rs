@@ -34,6 +34,7 @@ pub enum Value {
     Bool(bool),
     Dict(HashMap<Value, Rc<RefCell<Value>>>),
     Tuple(Vec<Rc<RefCell<Value>>>),
+    Vector(Vec<Rc<RefCell<Value>>>),
 }
 
 impl Value {
@@ -46,6 +47,7 @@ impl Value {
             &Value::Bool(_) => "bool",
             &Value::Dict(_) => "dict",
             &Value::Tuple(_) => "tuple",
+            &Value::Vector(_) => "vec",
         }
     }
 }
@@ -122,10 +124,6 @@ fn eval_(
     env: &mut EvalEnv,
     expr: &Expr,
 ) -> Result<Rc<RefCell<Value>>, InternalError> {
-    fn ok(val: Value) -> Result<Rc<RefCell<Value>>, InternalError> {
-        Ok(Rc::new(RefCell::new(val)))
-    }
-
     match expr.kind {
         ExprKind::RegexLiteral(ref r) => ok(Value::Regex(r.clone())),
         ExprKind::BoolLiteral(ref b) => ok(Value::Bool(b.clone())),
@@ -161,6 +159,19 @@ fn eval_(
             }
 
             ok(Value::Tuple(vs))
+        }
+        ExprKind::VectorLiteral(ref es) => {
+            let mut vs = if es.len() == 0 {
+                Vec::new()
+            } else {
+                Vec::with_capacity(es.len())
+            };
+
+            for v_expr in es.iter() {
+                vs.push(eval_(env, &v_expr)?);
+            }
+
+            ok(Value::Vector(vs))
         }
 
         ExprKind::BinOp(ref l_expr, ref op, ref r_expr) => match op {
@@ -490,7 +501,7 @@ fn eval_(
                     // weird borrow games so we can move k_val later
                     {
                         let k_valb = k_val.borrow();
-                        type_guard!(k_valb, collection.span.clone(), 
+                        type_guard!(k_valb, key.span.clone(),
                                 "str", "int", "float", "bool");
 
                         match d.get(k_valb.deref()) {
@@ -513,7 +524,6 @@ fn eval_(
                     // weird borrow games so we can move k_val later
                     {
                         let k_valb = k_val.borrow();
-                        type_guard!(k_valb, collection.span.clone(), "int");
 
                         match k_valb.deref() {
                             &Value::Int(ref i) => {
@@ -523,7 +533,33 @@ fn eval_(
                                 }
                             }
                             _ => return type_error!(
-                                k_valb, collection.span.clone(), "int"),
+                                k_valb, key.span.clone(), "int"),
+                        }
+                    }
+
+                    ok(Value::Tuple(vec![
+                        Rc::new(RefCell::new(
+                            Value::Str("err".to_string()))),
+                        Rc::new(RefCell::new(
+                            Value::Str("KeyError".to_string()))),
+                        k_val]))
+                }
+                &Value::Vector(ref v) => {
+                    let k_val = eval_(env, key)?;
+
+                    // weird borrow games so we can move k_val later
+                    {
+                        let k_valb = k_val.borrow();
+
+                        match k_valb.deref() {
+                            &Value::Int(ref i) => {
+                                match v.get(*i as usize) {
+                                    Some(v) => return Ok(v.clone()),
+                                    None => {} // FALLTHROUGH
+                                }
+                            }
+                            _ => return type_error!(
+                                k_valb, key.span.clone(), "int"),
                         }
                     }
 
@@ -536,9 +572,15 @@ fn eval_(
                 }
                 _ =>
                     type_error!(c_val, collection.span.clone(),
-                                    "dict", "tuple"),
+                                    "dict", "tuple", "vec"),
             }
         }
+
+        ExprKind::IndexSlice {
+            ref collection,
+            ref start,
+            ref end,
+        } => eval_slice(env, collection, start, end),
 
         ExprKind::ExprPoison => panic!("Bug in remake - poison expr"),
     }
@@ -552,7 +594,7 @@ fn exec(env: &mut EvalEnv, s: &Statement) -> Result<(), InternalError> {
             Ok(())
         }
 
-        // TODO: proper system of lvalues
+        // TODO(ethan): proper system of lvalues
         StatementKind::Assign(ref var, ref e) => {
             let span = e.span.clone();
             let v = eval_(env, &*e)?;
@@ -565,6 +607,121 @@ fn exec(env: &mut EvalEnv, s: &Statement) -> Result<(), InternalError> {
 //
 // Utils
 //
+
+fn eval_slice(
+    env: &mut EvalEnv,
+    collection: &Expr,
+    start: &Option<Box<Expr>>,
+    end: &Option<Box<Expr>>,
+) -> Result<Rc<RefCell<Value>>, InternalError> {
+    let c_val = eval_(env, collection)?;
+    let c_val = c_val.borrow();
+
+    // given an endpoint, return an index that is garenteed to be in range.
+    fn normalize_slice_index(v: &Vec<Rc<RefCell<Value>>>, i: i64) -> usize {
+        let idx = if i < 0 {
+            (v.len() as i64) + i
+        } else {
+            i
+        };
+
+        if idx < 0 {
+            0
+        } else {
+            if idx as usize > v.len() {
+                v.len()
+            } else {
+                idx as usize
+            }
+        }
+    }
+
+    match c_val.deref() {
+        &Value::Vector(ref v) => {
+            match (start, end) {
+                (&Some(ref start), &Some(ref end)) => {
+                    let s_val = eval_(env, start)?;
+                    let s_val = s_val.borrow();
+                    type_guard!(s_val, collection.span.clone(), "int");
+
+                    let e_val = eval_(env, end)?;
+                    let e_val = e_val.borrow();
+                    type_guard!(e_val, collection.span.clone(), "int");
+
+                    match (s_val.deref(), e_val.deref())  {
+                        (&Value::Int(ref s), &Value::Int(ref e)) => {
+                            let s = normalize_slice_index(v, *s);
+                            let e = normalize_slice_index(v, *e);
+
+                            let mut v_new = Vec::with_capacity((e - s) * 2);
+                            for elem in v[s..e].iter() {
+                                v_new.push(elem.clone());
+                            }
+
+                            ok(Value::Vector(v_new))
+                        }
+
+                        (&Value::Int(_), _) =>
+                            type_error!(e_val, end.span.clone(), "int"),
+                        _ => type_error!(
+                                s_val, start.span.clone(), "int"),
+                    }
+                }
+                (&Some(ref start), &None) => {
+                    let s_val = eval_(env, start)?;
+                    let s_val = s_val.borrow();
+                    type_guard!(s_val, collection.span.clone(), "int");
+
+                    match s_val.deref() {
+                        &Value::Int(ref s) => {
+                            let s = normalize_slice_index(v, *s);
+                            let e = v.len();
+
+                            let mut v_new = Vec::with_capacity((e - s) * 2);
+                            for elem in v[s..e].iter() {
+                                v_new.push(elem.clone());
+                            }
+
+                            ok(Value::Vector(v_new))
+                        }
+
+                        _ => type_error!(s_val, start.span.clone(), "int"),
+                    }
+                }
+                (&None, &Some(ref end)) => {
+                    let e_val = eval_(env, end)?;
+                    let e_val = e_val.borrow();
+                    type_guard!(e_val, collection.span.clone(), "int");
+
+                    match e_val.deref()  {
+                        &Value::Int(ref e) => {
+                            let e = normalize_slice_index(v, *e);
+
+                            let mut v_new = Vec::with_capacity(e * 2);
+                            for elem in v[0..e].iter() {
+                                v_new.push(elem.clone());
+                            }
+
+                            ok(Value::Vector(v_new))
+                        }
+
+                        _ => type_error!(e_val, end.span.clone(), "int"),
+                    }
+                }
+
+                (&None, &None) => {
+                    let mut v_new = Vec::with_capacity(v.len() * 2);
+                    for elem in v.iter() {
+                        v_new.push(elem.clone());
+                    }
+
+                    ok(Value::Vector(v_new))
+                }
+            }
+        }
+        _ => type_error!(c_val, collection.span.clone(), "vec"),
+    }
+}
 
 fn eval_equals(
     env: &mut EvalEnv,
@@ -644,6 +801,25 @@ fn eval_equals(
             }
             (&Value::Tuple(_), _) =>
                 type_error!(rhs, r_expr.span.clone(), "tuple"),
+
+            (&Value::Vector(ref l), &Value::Vector(ref r)) => {
+                if l.len() != r.len() {
+                    return Ok(false);
+                }
+
+                for (lv, rv) in l.iter().zip(r.iter()) {
+                    let lvb = lv.borrow();
+                    let rvb = rv.borrow();
+
+                    if ! eq(lvb.deref(), rvb.deref(), r_expr).unwrap_or(false) {
+                        return Ok(false);
+                    }
+                }
+
+                Ok(true)
+            }
+            (&Value::Vector(_), _) =>
+                type_error!(rhs, r_expr.span.clone(), "vec"),
         }
     };
 
@@ -880,6 +1056,11 @@ fn capture(re: Box<regex_syntax::ast::Ast>, name: Option<String>) -> Value {
         },
     )))
 }
+
+fn ok(val: Value) -> Result<Rc<RefCell<Value>>, InternalError> {
+    Ok(Rc::new(RefCell::new(val)))
+}
+
 
 //
 // The evaluation environment
@@ -1297,6 +1478,11 @@ mod tests {
 
     eval_to!(dict_6_, " { 1: 4 }[3][0] ", Value::Str("err".to_string()));
 
+    // TODO(ethan): dict[key] as lvalue
+    // TODO(ethan): extend dict with other dict (requires functions)
+    // TODO(ethan): keys (requires functions)
+    // TODO(ethan): items (requires functions)
+
     //
     // tuples
     //
@@ -1307,4 +1493,34 @@ mod tests {
     eval_to!(tuple_3_, " (1, 2)[2][1] ", Value::Str("KeyError".to_string()));
     eval_to!(tuple_4_, " (1, 2)[2][2] ", Value::Int(2));
 
+    // TODO(ethan): tuple[1] as lvalue
+
+    //
+    // vectors
+    //
+
+    eval_to!(vec_1_, " [1, 2][0] ", Value::Int(1));
+    eval_to!(vec_2_, " [1, 2][2][0] ", Value::Str("err".to_string()));
+    eval_to!(vec_3_, " [1, 2][2][1] ", Value::Str("KeyError".to_string()));
+    eval_to!(vec_4_, " [1, 2][2][2] ", Value::Int(2));
+
+    eval_to!(vec_5_, " [1, 2, 3][0:1][0] ", Value::Int(1));
+    eval_to!(vec_6_, " [1, 2, 3][0:1][1][1] ",
+        Value::Str("KeyError".to_string()));
+
+    eval_to!(vec_7_, " [1, 2, 3][0:][2] ", Value::Int(3));
+    eval_to!(vec_8_, " [1, 2, 3][1:][0] ", Value::Int(2));
+    eval_to!(vec_9_, " [1, 2, 3][0:-1][2][1] ", Value::Str("KeyError".to_string()));
+    eval_to!(vec_10_, " [1, 2, 3][1:-1][1][1] ", Value::Str("KeyError".to_string()));
+    eval_to!(vec_11_, " [1, 2, 3][1:-1][1][1] ", Value::Str("KeyError".to_string()));
+    eval_to!(vec_12_, " [1, 2, 3][1:-1][0] ", Value::Int(2));
+
+    eval_to!(vec_13_, " [1, 2, 3][:-1][0] ", Value::Int(1));
+    eval_to!(vec_14_, " [1, 2, 3][:-1][2][1] ", Value::Str("KeyError".to_string()));
+    eval_to!(vec_15_, " [1, 2, 3][:][2] ", Value::Int(3));
+    eval_to!(vec_16_, " [1, 2, 3][:][0] ", Value::Int(1));
+
+    // TODO(ethan): vec[1] as lvalue
+    // TODO(ethan): append to vector (requires functions)
+    // TODO(ethan): extend vector (requires functions)
 }

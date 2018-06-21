@@ -592,7 +592,7 @@ impl<'input> Lexer<'input> {
                     "<+>" => Ok((Token::Add, end)),
                     ":" => Ok((Token::Colon, end)),
 
-                    ".." | "=>" => Err(self.error(
+                    "=>" => Err(self.error(
                         LexicalErrorKind::ReservedButNotUsedOperator {
                             op: String::from(&self.input[start..end]),
                             end: end,
@@ -868,7 +868,6 @@ mod tests {
 
     tokens!(equals_1_, "=", Token::Equals);
 
-    lex_error_has!(unknown_op_4_, "  .. ", "Reserved operator");
     lex_error_has!(unknown_op_5_, "  loop ", "Reserved keyword");
 
     //

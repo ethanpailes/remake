@@ -49,7 +49,11 @@ pub enum ExprKind {
     Block(Vec<Statement>, Box<Expr>),
     Var(String),
     Index(Box<Expr>, Box<Expr>),
-
+    IndexSlice {
+        collection: Box<Expr>,
+        start: Option<Box<Expr>>,
+        end: Option<Box<Expr>>,
+    },
     RegexLiteral(Box<regex_syntax::ast::Ast>),
     IntLiteral(i64),
     FloatLiteral(f64),
@@ -57,6 +61,7 @@ pub enum ExprKind {
     BoolLiteral(bool),
     DictLiteral(Vec<(Box<Expr>, Box<Expr>)>),
     TupleLiteral(Vec<Box<Expr>>),
+    VectorLiteral(Vec<Box<Expr>>),
 
     /// A poison expression is never valid, but it lets us avoid copying
     /// the source string and still please the borrow checker.

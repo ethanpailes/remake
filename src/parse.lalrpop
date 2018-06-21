@@ -103,6 +103,33 @@ ExprKind0: ExprKind = {
     <e1:Expr0> "|" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Alt, e2),
 
     <e1:Expr0> "[" <e2:Expr0> "]" => ExprKind::Index(e1, e2),
+    <e1:Expr0> "[" <e2:Expr0> ":" <e3:Expr0> "]" =>
+        ExprKind::IndexSlice {
+            collection: e1,
+            start: Some(e2),
+            end: Some(e3),
+        },
+
+    <e1:Expr0> "[" <e2:Expr0> ":" "]" =>
+        ExprKind::IndexSlice {
+            collection: e1,
+            start: Some(e2),
+            end: None,
+        },
+
+    <e1:Expr0> "[" ":" <e2:Expr0> "]" =>
+        ExprKind::IndexSlice {
+            collection: e1,
+            start: None,
+            end: Some(e2),
+        },
+
+    <e1:Expr0> "[" ":" "]" =>
+        ExprKind::IndexSlice {
+            collection: e1,
+            start: None,
+            end: None,
+        },
 
     ExprKind1
 };
@@ -210,6 +237,7 @@ ExprKind6: ExprKind = {
     "false" => ExprKind::BoolLiteral(false),
     "{" <entries: Comma<DictEntry>> "}" => ExprKind::DictLiteral(entries),
     "(" <entries: Comma1<Expr0>> ")" => ExprKind::TupleLiteral(entries),
+    "[" <entries: Comma<Expr0>> "]" => ExprKind::VectorLiteral(entries),
     "(" <ExprKind0> ")",
 };
 
