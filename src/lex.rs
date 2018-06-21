@@ -95,8 +95,8 @@ impl<'input> fmt::Display for Token<'input> {
             // Operators
             &Token::OpenParen => write!(f, "("),
             &Token::CloseParen => write!(f, ")"),
-            &Token::OpenBracket=> write!(f, "["),
-            &Token::CloseBracket=> write!(f, "]"),
+            &Token::OpenBracket => write!(f, "["),
+            &Token::CloseBracket => write!(f, "]"),
             &Token::OpenCurly => write!(f, "{{"),
             &Token::LazyCloseCurly => write!(f, "}}?"),
             &Token::CloseCurly => write!(f, "}}"),
@@ -178,11 +178,9 @@ impl<'input> fmt::Display for LexicalErrorKind {
             &LexicalErrorKind::BadIdentifier => write!(f, "Bad identifier."),
             &LexicalErrorKind::BadOperator => write!(f, "Bad operator."),
 
-            &LexicalErrorKind::IntParseError(ref num_str, ref err) => write!(
-                f,
-                "Error parsing '{}' as a number: {}.",
-                num_str, err
-            ),
+            &LexicalErrorKind::IntParseError(ref num_str, ref err) => {
+                write!(f, "Error parsing '{}' as a number: {}.", num_str, err)
+            }
 
             &LexicalErrorKind::FloatParseError(ref num_str, ref err) => write!(
                 f,
@@ -283,9 +281,7 @@ impl<'input> Lexer<'input> {
     where
         F: Fn(char) -> bool,
     {
-        self.lookahead
-            .map(|(_, c)| pred(c))
-            .unwrap_or(false)
+        self.lookahead.map(|(_, c)| pred(c)).unwrap_or(false)
     }
 
     fn spanned(
@@ -312,8 +308,8 @@ impl<'input> Lexer<'input> {
     fn is_start_operator_char(&self, c: char) -> bool {
         match c {
             '{' | '}' | '*' | '+' | '?' | '.' | '|' | ',' | ';' | '=' | '('
-            | ')' | '!' | '&' | '<' | '>' | '-' | '/' | '%' | ':' |
-            '[' | ']' => true,
+            | ')' | '!' | '&' | '<' | '>' | '-' | '/' | '%' | ':' | '['
+            | ']' => true,
 
             // reserved but not used
             '^' => true,
@@ -353,11 +349,9 @@ impl<'input> Lexer<'input> {
             }
         }
 
-        Err(
-            self.error(LexicalErrorKind::UnclosedBlockComment {
-                nest_level: open_blocks,
-            }),
-        )
+        Err(self.error(LexicalErrorKind::UnclosedBlockComment {
+            nest_level: open_blocks,
+        }))
     }
 
     fn line_comment(&mut self) {
@@ -526,14 +520,13 @@ impl<'input> Lexer<'input> {
             )
         } else {
             (
-                Token::IntLit(i64::from_str(&self.input[start..end]).map_err(
-                    |e| {
+                Token::IntLit(i64::from_str(&self.input[start..end])
+                    .map_err(|e| {
                         self.error(LexicalErrorKind::IntParseError(
                             String::from(&self.input[start..end]),
                             e,
                         ))
-                    },
-                )?),
+                    })?),
                 end,
             )
         })
@@ -644,9 +637,7 @@ impl<'input> Iterator for Lexer<'input> {
 
                 c if c.is_whitespace() => continue,
 
-                c => Some(Err(self.error(
-                    LexicalErrorKind::UnexpectedChar(c),
-                ))),
+                c => Some(Err(self.error(LexicalErrorKind::UnexpectedChar(c)))),
             };
         }
 
@@ -831,36 +822,21 @@ mod tests {
 
     tokens!(question_1_, "?", Token::Question);
     tokens!(question_2_, "??", Token::LazyQuestion);
-    tokens!(
-        question_3_,
-        "???",
-        Token::LazyQuestion,
-        Token::Question
-    );
+    tokens!(question_3_, "???", Token::LazyQuestion, Token::Question);
     tokens!(
         question_4_,
         "????",
         Token::LazyQuestion,
         Token::LazyQuestion
     );
-    tokens!(
-        question_5_,
-        ")?",
-        Token::CloseParen,
-        Token::Question
-    );
+    tokens!(question_5_, ")?", Token::CloseParen, Token::Question);
 
     tokens!(comma_1_, ",", Token::Comma);
     tokens!(comma_2_, ",,", Token::Comma, Token::Comma);
 
     tokens!(star_1_, " *", Token::Star);
 
-    tokens!(
-        lazy_star_1_,
-        "    *?  *  ",
-        Token::LazyStar,
-        Token::Star
-    );
+    tokens!(lazy_star_1_, "    *?  *  ", Token::LazyStar, Token::Star);
 
     tokens!(pipe_1_, " | ", Token::Pipe);
 
@@ -896,50 +872,26 @@ mod tests {
     // Regex literals
     //
 
-    tokens!(
-        regex_lit_1_,
-        "/foo/",
-        Token::RegexLit("foo".to_string())
-    );
+    tokens!(regex_lit_1_, "/foo/", Token::RegexLit("foo".to_string()));
     tokens!(
         regex_lit_2_,
         r" /fo\/o/ ",
         Token::RegexLit("fo/o".to_string())
     );
 
-    lex_error_has!(
-        regex_lit_3_,
-        r" /fo\/ ",
-        "Unclosed regex literal"
-    );
+    lex_error_has!(regex_lit_3_, r" /fo\/ ", "Unclosed regex literal");
     lex_error_has!(regex_lit_4_, r" /fo ", "Unclosed regex literal");
     lex_error_has!(regex_lit_5_, r" '' ", "Empty raw regex literal");
-    lex_error_has!(
-        regex_lit_6_,
-        " \"this isnt closed ",
-        "Unclosed string"
-    );
+    lex_error_has!(regex_lit_6_, " \"this isnt closed ", "Unclosed string");
     lex_error_has!(regex_lit_7_, " \"\\x\" ", "Unknown escape");
     lex_error_has!(regex_lit_8_, " \\ ", "Unexpected char");
 
-    tokens!(
-        raw_regex_lit_1_,
-        "'foo'",
-        Token::RawRegexLit("foo")
-    );
+    tokens!(raw_regex_lit_1_, "'foo'", Token::RawRegexLit("foo"));
 
     // raw regex don't have escape codes
-    tokens!(
-        raw_regex_lit_2_,
-        r" '\' ",
-        Token::RawRegexLit(r"\")
-    );
+    tokens!(raw_regex_lit_2_, r" '\' ", Token::RawRegexLit(r"\"));
 
-    lex_error_has!(
-        raw_regex_lit_4_,
-        r" 'blah  ",
-        "Unclosed raw regex literal"
-    );
+    lex_error_has!(raw_regex_lit_4_, r" 'blah  ", "Unclosed raw regex literal");
 
     lex_error_has!(raw_regex_lit_5_, r"a'", "Unclosed raw");
     lex_error_has!(raw_regex_lit_6_, r"'", "Unclosed raw");
@@ -1004,27 +956,14 @@ mod tests {
         Token::Cap
     );
 
-    lex_error_has!(
-        comments_6_,
-        "/* unclosed",
-        "Unclosed block comment"
-    );
+    lex_error_has!(comments_6_, "/* unclosed", "Unclosed block comment");
 
     //
     // Numbers
     //
 
-    tokens!(
-        num_1_,
-        r" 56 98 ",
-        Token::IntLit(56),
-        Token::IntLit(98)
-    );
-    lex_error_has!(
-        num_2_,
-        r" 56999999999999999999999 ",
-        "number too large"
-    );
+    tokens!(num_1_, r" 56 98 ", Token::IntLit(56), Token::IntLit(98));
+    lex_error_has!(num_2_, r" 56999999999999999999999 ", "number too large");
     tokens!(num_3_, r" 56,", Token::IntLit(56), Token::Comma);
     tokens!(num_4_, r" 5", Token::IntLit(5));
     tokens!(num_5_, r" 5 ", Token::IntLit(5));
@@ -1033,11 +972,7 @@ mod tests {
     // Strings
     //
 
-    tokens!(
-        str_1_,
-        " \"hello\" ",
-        Token::StringLit("hello".to_string())
-    );
+    tokens!(str_1_, " \"hello\" ", Token::StringLit("hello".to_string()));
 
     tokens!(
         str_2_,
@@ -1061,11 +996,7 @@ mod tests {
     // Spans
     //
 
-    spanned!(
-        span_regex_lit_1_,
-        "   /foo/    ",
-        "   ~~~~~    "
-    );
+    spanned!(span_regex_lit_1_, "   /foo/    ", "   ~~~~~    ");
 
     spanned!(
         span_regex_lit_2_,
@@ -1073,11 +1004,7 @@ mod tests {
         "  ~~~~~ ~ ~~~~~    "
     );
 
-    spanned!(
-        span_raw_regex_lit_1_,
-        "   'foo'    ",
-        "   ~~~~~    "
-    );
+    spanned!(span_raw_regex_lit_1_, "   'foo'    ", "   ~~~~~    ");
 
     spanned!(span_plus_1_, "   +  ", "   ~  ");
 
@@ -1157,11 +1084,6 @@ mod tests {
     //
 
     lex_error_has!(bad_float_1_, " 5. 0", "as a number");
-    tokens!(
-        bad_float_2_,
-        " .5",
-        Token::Dot,
-        Token::IntLit(5)
-    );
+    tokens!(bad_float_2_, " .5", Token::Dot, Token::IntLit(5));
     spanned!(bad_float_3_, " 5 . 0", " ~ ~ ~");
 }

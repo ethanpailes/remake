@@ -225,12 +225,12 @@ ExprKind5: ExprKind = {
 
 Expr6: Box<Expr> = {
     <l: @L> <e:ExprKind6> <r: @R> =>
-        Box::new(Expr::new(e, Span { start: l, end: r }))
+        Box::new(Expr::new(e, Span { start: l, end: r })),
 };
 ExprKind6: ExprKind = {
     <r:RegexLiteral> => ExprKind::RegexLiteral(r),
-    <var:"identifier"> => ExprKind::Var(var.to_string()),
     <int:"int"> => ExprKind::IntLiteral(int),
+    <var:"identifier"> => ExprKind::Var(var.to_string()),
     <float:"float"> => ExprKind::FloatLiteral(float),
     <str:"str"> => ExprKind::StringLiteral(str),
     "true" => ExprKind::BoolLiteral(true),
@@ -239,6 +239,15 @@ ExprKind6: ExprKind = {
     "(" <entries: Comma1<Expr0>> ")" => ExprKind::TupleLiteral(entries),
     "[" <entries: Comma<Expr0>> "]" => ExprKind::VectorLiteral(entries),
     "(" <ExprKind0> ")",
+};
+
+LValue: Box<Expr> = {
+    <l: @L> <e:LValueKind> <r: @R> =>
+        Box::new(Expr::new(e, Span { start: l, end: r })),
+};
+LValueKind: ExprKind = {
+    <var:"identifier"> => ExprKind::Var(var.to_string()),
+    <e1:Expr0> "[" <e2:Expr0> "]" => ExprKind::Index(e1, e2),
 };
 
 DictEntry: (Box<Expr>, Box<Expr>) =
@@ -308,7 +317,7 @@ StatementKind: StatementKind = {
     "let" <id:"identifier"> "=" <e:Expr0> => {
         StatementKind::LetBinding(String::from(id), e)
     },
-    <id:"identifier"> "=" <e:Expr0> => {
-        StatementKind::Assign(String::from(id), e)
+    <lv:LValue> "=" <e:Expr0> => {
+        StatementKind::Assign(lv, e)
     },
 };

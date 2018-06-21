@@ -385,18 +385,18 @@ impl Remake {
     /// use remake::Remake;
     /// let web_uri_re = Remake::compile(
     ///     r#"
-    ///     let scheme = /https?:/ . '//';
-    ///     let auth = /[\w\.\-_]+/;
-    ///     let path = ('/' . /[\w\-_]+/)*;
-    ///     let query_body = (/[\w\.\-_?]/ | '/')*;
-    ///     let frag_body = cap query_body as frag;
+    /// let scheme = /https?:/ . '//';
+    /// let auth = /[\w\.\-_]+/;
+    /// let path = ('/' . /[\w\-_]+/)*;
+    /// let query_body = (/[\w\.\-_?]/ | '/')*;
+    /// let frag_body = cap query_body as frag;
     ///
-    ///       /^/
-    ///     . scheme . auth . path
-    ///     . ('?' . query_body)?
-    ///     . ('#' . frag_body)?
-    ///     . /$/
-    ///     "#,
+    ///   /^/
+    /// . scheme . auth . path
+    /// . ('?' . query_body)?
+    /// . ('#' . frag_body)?
+    /// . /$/
+    /// "#,
     /// ).unwrap();
     ///
     /// assert!(web_uri_re.is_match("https://www.rust-lang.org"));
@@ -445,10 +445,7 @@ impl Remake {
         let mut remake = Remake {
             expr: ast::Expr::new(
                 ast::ExprKind::ExprPoison,
-                ast::Span {
-                    start: 0,
-                    end: 0,
-                },
+                ast::Span { start: 0, end: 0 },
             ),
             src: src,
         };
@@ -487,10 +484,7 @@ impl Remake {
                                     token: tok.to_string(),
                                     expected: expected,
                                 },
-                                ast::Span {
-                                    start: l,
-                                    end: r
-                                }
+                                ast::Span { start: l, end: r }
                             ).overlay(&remake.src)
                         ),
 
@@ -525,10 +519,9 @@ impl Remake {
     pub fn eval(self) -> Result<regex::Regex, Error> {
         match self.expr.eval() {
             Ok(ast) => Ok(regex::Regex::new(&ast.to_string()).unwrap()),
-            Err(err) => Err(Error::RuntimeError(format!(
-                "{}",
-                err.overlay(&self.src)
-            ))),
+            Err(err) => {
+                Err(Error::RuntimeError(format!("{}", err.overlay(&self.src))))
+            }
         }
     }
 }
@@ -690,16 +683,8 @@ mod tests {
     mat!(lit_1, r"/a/", "a");
     mat!(lit_2, r"'a'", "a");
     mat!(lit_3, r"/\p{Currency_Symbol}/", r"$");
-    mat!(
-        lit_4,
-        r"'\p{Currency_Symbol}'",
-        r"\p{Currency_Symbol}"
-    );
-    mat!(
-        lit_5,
-        r"'\u{Currency_Symbol}'",
-        r"\u{Currency_Symbol}"
-    );
+    mat!(lit_4, r"'\p{Currency_Symbol}'", r"\p{Currency_Symbol}");
+    mat!(lit_5, r"'\u{Currency_Symbol}'", r"\u{Currency_Symbol}");
 
     //
     // remake parse errors
@@ -937,29 +922,16 @@ Unexpected token"#
     mat!(lazy_exact_4_, r"/a/ {3 }? . 'b'", "aaab");
 
     mat!(greedy_atleast_1_, r"/a/ {3,}", "aaaaaaaa");
-    mat!(
-        greedy_atleast_2_,
-        r"/a/ { 3 , } . 'b'",
-        "aaaaaab"
-    );
+    mat!(greedy_atleast_2_, r"/a/ { 3 , } . 'b'", "aaaaaab");
     no_mat!(greedy_atleast_3_, r"/a/ { 3 , } . 'b'", "ab");
 
     mat!(lazy_atleast_1_, r"/a/ {3,}?", "aaaaaaaa");
-    mat!(
-        lazy_atleast_2_,
-        r"/a/ { 3 , }? . 'b'",
-        "aaaaaab"
-    );
+    mat!(lazy_atleast_2_, r"/a/ { 3 , }? . 'b'", "aaaaaab");
     no_mat!(lazy_atleast_3_, r"/a/ { 3 , }? . 'b'", "ab");
 
     captures!(cap_basic_1_, r"/a(b)a/", "aba", Some("b"));
 
-    captures!(
-        cap_remake_1_,
-        r"/a/ . cap /b/ . /a/",
-        "aba",
-        Some("b")
-    );
+    captures!(cap_remake_1_, r"/a/ . cap /b/ . /a/", "aba", Some("b"));
     captures!(
         cap_remake_2_,
         r"cap (/a/ . cap /b/ . /a/)",
@@ -1094,22 +1066,14 @@ Error parsing '11111111111111111111111111111111111111111111111111111111' as a nu
         "foo"
     );
 
-    mat!(
-        repeated_concat_1_,
-        r"/^/ . ('/' . /[\w\-_]+/)* . /$/",
-        ""
-    );
+    mat!(repeated_concat_1_, r"/^/ . ('/' . /[\w\-_]+/)* . /$/", "");
     mat!(
         repeated_concat_2_,
         r"/^/ . ('/' . /[\w\-_]+/)* . /$/",
         "/a/b/c"
     );
 
-    mat!(
-        repeated_concat_3_,
-        r"/^/ . ('/' . /[\w\-_]+?/)* . /$/",
-        ""
-    );
+    mat!(repeated_concat_3_, r"/^/ . ('/' . /[\w\-_]+?/)* . /$/", "");
     mat!(
         repeated_concat_4_,
         r"/^/ . ('/' . /[\w\-_]+?/)* . /$/",

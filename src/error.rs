@@ -78,10 +78,7 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
         )?;
 
         match &self.err.kind {
-            &RegexError {
-                ref re,
-                ref err,
-            } => {
+            &RegexError { ref re, ref err } => {
                 writeln!(f, "Error parsing the regex literal: /{}/", re)?;
                 write!(f, "{}", block_leftpad(err, 4))?;
             }
@@ -108,6 +105,9 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
 
             &NameError { ref name } => {
                 writeln!(f, "NameError: unknown variable '{}'.", name)?;
+            }
+            &KeyError { ref key } => {
+                writeln!(f, "KeyError: {}.", key)?;
             }
             &TypeError {
                 ref expected,
@@ -179,6 +179,9 @@ pub enum ErrorKind {
     },
     ZeroDivisionError {
         neum: String,
+    },
+    KeyError {
+        key: String,
     },
     FinalValueNotRegex {
         actual: String,
@@ -263,12 +266,9 @@ impl PosSpan {
                 let line_no = i + 1;
 
                 // Print two lines of context
-                if line_no
-                    > self.start_line
-                        .saturating_sub(Self::CONTEXT_LINES)
+                if line_no > self.start_line.saturating_sub(Self::CONTEXT_LINES)
                     && line_no
-                        < self.start_line
-                            .saturating_add(Self::CONTEXT_LINES)
+                        < self.start_line.saturating_add(Self::CONTEXT_LINES)
                 {
                     s.push_str(&format!("{:04} > ", line_no));
                     s.push_str(line);
@@ -307,42 +307,28 @@ impl PosSpan {
             let line_no = i + 1;
 
             // Print two lines of context around the starting line
-            if line_no
-                > self.start_line
-                    .saturating_sub(Self::CONTEXT_LINES)
-                && line_no
-                    < self.start_line
-                        .saturating_add(Self::CONTEXT_LINES)
+            if line_no > self.start_line.saturating_sub(Self::CONTEXT_LINES)
+                && line_no < self.start_line.saturating_add(Self::CONTEXT_LINES)
             {
                 s.push_str(&format!("{:04}  > ", line_no));
                 s.push_str(line);
                 s.push('\n');
             }
 
-            if line_no
-                > self.start_line
-                    .saturating_add(Self::CONTEXT_LINES)
-                && line_no
-                    < self.end_line
-                        .saturating_sub(Self::CONTEXT_LINES)
+            if line_no > self.start_line.saturating_add(Self::CONTEXT_LINES)
+                && line_no < self.end_line.saturating_sub(Self::CONTEXT_LINES)
                 && !printed_dots
             {
                 s.push_str("...\n");
                 printed_dots = true;
             }
 
-            if line_no
-                > self.end_line
-                    .saturating_sub(Self::CONTEXT_LINES)
-                && line_no
-                    < self.end_line
-                        .saturating_add(Self::CONTEXT_LINES)
+            if line_no > self.end_line.saturating_sub(Self::CONTEXT_LINES)
+                && line_no < self.end_line.saturating_add(Self::CONTEXT_LINES)
                 && !(line_no
-                    > self.start_line
-                        .saturating_sub(Self::CONTEXT_LINES)
+                    > self.start_line.saturating_sub(Self::CONTEXT_LINES)
                     && line_no
-                        < self.start_line
-                            .saturating_add(Self::CONTEXT_LINES))
+                        < self.start_line.saturating_add(Self::CONTEXT_LINES))
             {
                 s.push_str(&format!("{:04}  > ", line_no));
                 s.push_str(line);
