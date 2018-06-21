@@ -33,6 +33,9 @@ extern {
         "(" => lex::Token::OpenParen,
         ")" => lex::Token::CloseParen,
 
+        "[" => lex::Token::OpenBracket,
+        "]" => lex::Token::CloseBracket,
+
         "{" => lex::Token::OpenCurly,
         "}" => lex::Token::CloseCurly,
         "}?" => lex::Token::LazyCloseCurly,
@@ -60,6 +63,7 @@ extern {
         "&&" => lex::Token::And,
         "||" => lex::Token::Or,
         "!" => lex::Token::Bang,
+        ":" => lex::Token::Colon,
 
         "<+>" => lex::Token::Add,
         "</>" => lex::Token::Div,
@@ -97,6 +101,8 @@ Expr0: Box<Expr> = {
 ExprKind0: ExprKind = {
     <e1:Expr0> "." <e2:Expr1> => ExprKind::BinOp(e1, BOp::Concat, e2),
     <e1:Expr0> "|" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Alt, e2),
+
+    <e1:Expr0> "[" <e2:Expr0> "]" => ExprKind::Index(e1, e2),
 
     ExprKind1
 };
@@ -202,8 +208,28 @@ ExprKind6: ExprKind = {
     <str:"str"> => ExprKind::StringLiteral(str),
     "true" => ExprKind::BoolLiteral(true),
     "false" => ExprKind::BoolLiteral(false),
+    "{" <entries: Comma<DictEntry>> "}" => ExprKind::DictLiteral(entries),
+    "(" <entries: Comma1<Expr0>> ")" => ExprKind::TupleLiteral(entries),
     "(" <ExprKind0> ")",
 };
+
+DictEntry: (Box<Expr>, Box<Expr>) =
+    <key: Expr0> ":" <value: Expr0> => (key, value);
+
+Comma<Rule>: Vec<Rule> =
+    <rules: (<Rule> ",")*> <last: Rule?> => {
+        let mut rules = rules;
+        rules.extend(last);
+        rules
+    };
+
+Comma1<Rule>: Vec<Rule> =
+    <first: Rule> "," <middle: (<Rule> ",")*> <last: Rule?> => {
+        let mut rules = vec![first];
+        rules.extend(middle);
+        rules.extend(last);
+        rules
+    };
 
 RegexLiteral: Box<regex_syntax::ast::Ast> = {
 

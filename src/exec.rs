@@ -8,6 +8,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::rc::Rc;
 
@@ -31,6 +32,8 @@ pub enum Value {
     Float(f64),
     Str(String),
     Bool(bool),
+    Dict(HashMap<Value, Rc<RefCell<Value>>>),
+    Tuple(Vec<Rc<RefCell<Value>>>),
 }
 
 impl Value {
@@ -41,9 +44,53 @@ impl Value {
             &Value::Float(_) => "float",
             &Value::Str(_) => "str",
             &Value::Bool(_) => "bool",
+            &Value::Dict(_) => "dict",
+            &Value::Tuple(_) => "tuple",
         }
     }
 }
+
+impl Hash for Value {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            &Value::Int(ref i) => i.hash(state),
+            &Value::Float(ref f) => {
+                // Allowing floats as keys because Worse is Better.
+                // When performing a lookup with nan as a key we will
+                // throw a TypeError just like python does.
+                //
+                // Argument for saftey: f64 always has 8 bytes.
+                let bytes: [u8; 8] = unsafe { ::std::mem::transmute(*f) };
+                bytes.hash(state);
+            },
+            &Value::Str(ref s) => s.hash(state),
+            &Value::Bool(ref b) => b.hash(state),
+
+            val => unreachable!("Bug in remake - hash({})", val.type_of()),
+        }
+    }
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Value) -> bool {
+        match (self, other) {
+            (&Value::Int(ref i1), &Value::Int(ref i2)) => *i1 == *i2,
+            (&Value::Float(ref f1), &Value::Float(ref f2)) => {
+                // Argument for saftey: f64 always has 8 bytes
+                let bytes1: [u8; 8] = unsafe { ::std::mem::transmute(*f1) };
+                let bytes2: [u8; 8] = unsafe { ::std::mem::transmute(*f2) };
+                bytes1 == bytes2
+            },
+            (&Value::Str(ref s1), &Value::Str(ref s2)) => *s1 == *s2,
+            (&Value::Bool(ref b1), &Value::Bool(ref b2)) => *b1 == *b2,
+
+            _ => unreachable!("Bug in remake - bogus eq"),
+        }
+    }
+}
+
+// bogus Eq implimentation to facilitate our dict implimentation.
+impl Eq for Value {}
 
 pub fn eval(expr: &Expr) -> Result<Value, InternalError> {
     eval_(&mut EvalEnv::new(), expr)
@@ -85,6 +132,36 @@ fn eval_(
         ExprKind::IntLiteral(ref i) => ok(Value::Int(i.clone())),
         ExprKind::FloatLiteral(ref f) => ok(Value::Float(f.clone())),
         ExprKind::StringLiteral(ref s) => ok(Value::Str(s.clone())),
+        ExprKind::DictLiteral(ref pairs) => {
+            let mut h = if pairs.len() == 0 {
+                HashMap::new()
+            } else {
+                HashMap::with_capacity(pairs.len() * 2)
+            };
+
+            for &(ref k_expr, ref v_expr) in pairs.iter() {
+                let k_val = eval_(env, &k_expr)?;
+                let k_val = k_val.borrow();
+                type_guard!(k_val, k_expr.span.clone(),
+                    "str", "int", "float", "bool");
+
+                let v_val = eval_(env, &v_expr)?;
+
+                h.insert(k_val.deref().clone(), v_val);
+            }
+
+            ok(Value::Dict(h))
+        }
+        ExprKind::TupleLiteral(ref es) => {
+            debug_assert!(es.len() != 0);
+            let mut vs = Vec::with_capacity(es.len());
+
+            for v_expr in es.iter() {
+                vs.push(eval_(env, &v_expr)?);
+            }
+
+            ok(Value::Tuple(vs))
+        }
 
         ExprKind::BinOp(ref l_expr, ref op, ref r_expr) => match op {
             &BOp::Concat => {
@@ -120,7 +197,7 @@ fn eval_(
                 }
             }
 
-            BOp::Alt => {
+            &BOp::Alt => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "regex");
@@ -141,13 +218,13 @@ fn eval_(
             }
 
             // comparison operators
-            BOp::Equals => ok(Value::Bool(eval_equals(env, l_expr, r_expr)?)),
-            BOp::Ne => ok(Value::Bool(!eval_equals(env, l_expr, r_expr)?)),
-            BOp::Lt => ok(Value::Bool(eval_lt(env, l_expr, r_expr)?)),
-            BOp::Gt => ok(Value::Bool(eval_gt(env, l_expr, r_expr)?)),
-            BOp::Le => ok(Value::Bool(eval_le(env, l_expr, r_expr)?)),
-            BOp::Ge => ok(Value::Bool(eval_ge(env, l_expr, r_expr)?)),
-            BOp::Or => {
+            &BOp::Equals => ok(Value::Bool(eval_equals(env, l_expr, r_expr)?)),
+            &BOp::Ne => ok(Value::Bool(!eval_equals(env, l_expr, r_expr)?)),
+            &BOp::Lt => ok(Value::Bool(eval_lt(env, l_expr, r_expr)?)),
+            &BOp::Gt => ok(Value::Bool(eval_gt(env, l_expr, r_expr)?)),
+            &BOp::Le => ok(Value::Bool(eval_le(env, l_expr, r_expr)?)),
+            &BOp::Ge => ok(Value::Bool(eval_ge(env, l_expr, r_expr)?)),
+            &BOp::Or => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "bool");
@@ -166,7 +243,7 @@ fn eval_(
                     _ => unreachable!("Bug in remake - or"),
                 }
             }
-            BOp::And => {
+            &BOp::And => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "bool");
@@ -186,7 +263,7 @@ fn eval_(
                 }
             }
 
-            BOp::Plus => {
+            &BOp::Plus => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "int", "float");
@@ -212,7 +289,7 @@ fn eval_(
                     _ => unreachable!("Bug in remake - plus"),
                 }
             }
-            BOp::Minus => {
+            &BOp::Minus => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "int", "float");
@@ -238,7 +315,7 @@ fn eval_(
                     _ => unreachable!("Bug in remake - minus"),
                 }
             }
-            BOp::Div => {
+            &BOp::Div => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "int", "float");
@@ -280,7 +357,7 @@ fn eval_(
                     _ => unreachable!("Bug in remake - div"),
                 }
             }
-            BOp::Times => {
+            &BOp::Times => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "int", "float");
@@ -306,7 +383,7 @@ fn eval_(
                     _ => unreachable!("Bug in remake - times"),
                 }
             }
-            BOp::Mod => {
+            &BOp::Mod => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "int", "float");
@@ -339,34 +416,34 @@ fn eval_(
             let e_val = e_val.borrow();
 
             match op {
-                UOp::Not => match e_val.deref() {
+                &UOp::Not => match e_val.deref() {
                     &Value::Bool(ref b) => ok(Value::Bool(!*b)),
                     _ => type_error!(e_val, e.span.clone(), "bool"),
                 },
-                UOp::Neg => match e_val.deref() {
+                &UOp::Neg => match e_val.deref() {
                     &Value::Int(ref i) => ok(Value::Int(-*i)),
                     &Value::Float(ref f) => ok(Value::Float(-*f)),
                     _ => type_error!(e_val, e.span.clone(), "int", "float"),
                 },
-                UOp::RepeatZeroOrMore(ref greedy) => match e_val.deref() {
+                &UOp::RepeatZeroOrMore(ref greedy) => match e_val.deref() {
                     &Value::Regex(ref re) => {
                         ok(rep_zero_or_more(re.clone(), *greedy))
                     }
                     _ => type_error!(e_val, e.span.clone(), "regex"),
                 },
-                UOp::RepeatOneOrMore(ref greedy) => match e_val.deref() {
+                &UOp::RepeatOneOrMore(ref greedy) => match e_val.deref() {
                     &Value::Regex(ref re) => {
                         ok(rep_one_or_more(re.clone(), *greedy))
                     }
                     _ => type_error!(e_val, e.span.clone(), "regex"),
                 },
-                UOp::RepeatZeroOrOne(ref greedy) => match e_val.deref() {
+                &UOp::RepeatZeroOrOne(ref greedy) => match e_val.deref() {
                     &Value::Regex(ref re) => {
                         ok(rep_zero_or_one(re.clone(), *greedy))
                     }
                     _ => type_error!(e_val, e.span.clone(), "regex"),
                 },
-                UOp::RepeatRange(ref greedy, ref range) => {
+                &UOp::RepeatRange(ref greedy, ref range) => {
                     match e_val.deref() {
                         &Value::Regex(ref re) => {
                             ok(rep_range(re.clone(), *greedy, range.clone()))
@@ -398,8 +475,70 @@ fn eval_(
             Ok(res)
         }
 
-        ExprKind::Var(ref var) => env.lookup(var)
-            .map_err(|e| InternalError::new(e, expr.span.clone())),
+        ExprKind::Var(ref var) =>
+            env.lookup(var)
+               .map_err(|e| InternalError::new(e, expr.span.clone())),
+
+        ExprKind::Index(ref collection, ref key) => {
+            let c_val = eval_(env, collection)?;
+            let c_val = c_val.borrow();
+
+            match c_val.deref() {
+                &Value::Dict(ref d) => {
+                    let k_val = eval_(env, key)?;
+
+                    // weird borrow games so we can move k_val later
+                    {
+                        let k_valb = k_val.borrow();
+                        type_guard!(k_valb, collection.span.clone(), 
+                                "str", "int", "float", "bool");
+
+                        match d.get(k_valb.deref()) {
+                            Some(v) => return Ok(v.clone()),
+                            None => {} // FALLTHROUGH
+                        }
+                    }
+
+
+                    ok(Value::Tuple(vec![
+                        Rc::new(RefCell::new(
+                            Value::Str("err".to_string()))),
+                        Rc::new(RefCell::new(
+                            Value::Str("KeyError".to_string()))),
+                        k_val]))
+                }
+                &Value::Tuple(ref t) => {
+                    let k_val = eval_(env, key)?;
+
+                    // weird borrow games so we can move k_val later
+                    {
+                        let k_valb = k_val.borrow();
+                        type_guard!(k_valb, collection.span.clone(), "int");
+
+                        match k_valb.deref() {
+                            &Value::Int(ref i) => {
+                                match t.get(*i as usize) {
+                                    Some(v) => return Ok(v.clone()),
+                                    None => {} // FALLTHROUGH
+                                }
+                            }
+                            _ => return type_error!(
+                                k_valb, collection.span.clone(), "int"),
+                        }
+                    }
+
+                    ok(Value::Tuple(vec![
+                        Rc::new(RefCell::new(
+                            Value::Str("err".to_string()))),
+                        Rc::new(RefCell::new(
+                            Value::Str("KeyError".to_string()))),
+                        k_val]))
+                }
+                _ =>
+                    type_error!(c_val, collection.span.clone(),
+                                    "dict", "tuple"),
+            }
+        }
 
         ExprKind::ExprPoison => panic!("Bug in remake - poison expr"),
     }
@@ -412,6 +551,8 @@ fn exec(env: &mut EvalEnv, s: &Statement) -> Result<(), InternalError> {
             env.bind(id.clone(), v);
             Ok(())
         }
+
+        // TODO: proper system of lvalues
         StatementKind::Assign(ref var, ref e) => {
             let span = e.span.clone();
             let v = eval_(env, &*e)?;
@@ -436,28 +577,77 @@ fn eval_equals(
     let r_val = eval_(env, r_expr)?;
     let r_val = r_val.borrow();
 
-    match (l_val.deref(), r_val.deref()) {
-        (&Value::Regex(ref l), &Value::Regex(ref r)) => Ok(*l == *r),
-        (&Value::Regex(_), _) => {
-            type_error!(r_val, r_expr.span.clone(), "regex")
+    fn eq(lhs: &Value, rhs: &Value, r_expr: &Expr) -> Result<bool, InternalError> {
+        match (lhs, rhs) {
+            (&Value::Regex(ref l), &Value::Regex(ref r)) => Ok(*l == *r),
+            (&Value::Regex(_), _) => {
+                type_error!(rhs, r_expr.span.clone(), "regex")
+            }
+
+            (&Value::Str(ref l), &Value::Str(ref r)) => Ok(*l == *r),
+            (&Value::Str(_), _) =>
+                type_error!(rhs, r_expr.span.clone(), "str"),
+
+            (&Value::Int(ref l), &Value::Int(ref r)) => Ok(*l == *r),
+            (&Value::Int(_), _) =>
+                type_error!(rhs, r_expr.span.clone(), "int"),
+
+            (&Value::Float(ref l), &Value::Float(ref r)) => {
+                Ok((*l - *r).abs() < FLOAT_EQ_EPSILON)
+            }
+            (&Value::Float(_), _) => {
+                type_error!(rhs, r_expr.span.clone(), "float")
+            }
+
+            (&Value::Bool(ref l), &Value::Bool(ref r)) => Ok(*l == *r),
+            (&Value::Bool(_), _) =>
+                type_error!(rhs, r_expr.span.clone(), "bool"),
+
+            (&Value::Dict(ref l), &Value::Dict(ref r)) => {
+                if l.len() != r.len() {
+                    return Ok(false);
+                }
+
+                for (k, v1) in l.iter() {
+                    match r.get(k) {
+                        None => return Ok(false),
+                        Some(v2) => {
+                            let v1b = v1.borrow();
+                            let v2b = v2.borrow();
+                            if ! eq(v1b.deref(), v2b.deref(), r_expr).unwrap_or(false) {
+                                return Ok(false);
+                            }
+                        }
+                    }
+                }
+
+                Ok(true)
+            }
+            (&Value::Dict(_), _) =>
+                type_error!(rhs, r_expr.span.clone(), "dict"),
+
+            (&Value::Tuple(ref l), &Value::Tuple(ref r)) => {
+                if l.len() != r.len() {
+                    return Ok(false);
+                }
+
+                for (lv, rv) in l.iter().zip(r.iter()) {
+                    let lvb = lv.borrow();
+                    let rvb = rv.borrow();
+
+                    if ! eq(lvb.deref(), rvb.deref(), r_expr).unwrap_or(false) {
+                        return Ok(false);
+                    }
+                }
+
+                Ok(true)
+            }
+            (&Value::Tuple(_), _) =>
+                type_error!(rhs, r_expr.span.clone(), "tuple"),
         }
+    };
 
-        (&Value::Str(ref l), &Value::Str(ref r)) => Ok(*l == *r),
-        (&Value::Str(_), _) => type_error!(r_val, r_expr.span.clone(), "str"),
-
-        (&Value::Int(ref l), &Value::Int(ref r)) => Ok(*l == *r),
-        (&Value::Int(_), _) => type_error!(r_val, r_expr.span.clone(), "int"),
-
-        (&Value::Float(ref l), &Value::Float(ref r)) => {
-            Ok((*l - *r).abs() < FLOAT_EQ_EPSILON)
-        }
-        (&Value::Float(_), _) => {
-            type_error!(r_val, r_expr.span.clone(), "float")
-        }
-
-        (&Value::Bool(ref l), &Value::Bool(ref r)) => Ok(*l == *r),
-        (&Value::Bool(_), _) => type_error!(r_val, r_expr.span.clone(), "bool"),
-    }
+    eq(l_val.deref(), r_val.deref(), r_expr)
 }
 
 fn eval_lt(
@@ -1093,4 +1283,28 @@ mod tests {
     "#,
         "NameError"
     );
+
+    //
+    // dicts
+    //
+
+    eval_to!(dict_1_, " { 1: 2 } == { 1: 2 } ", Value::Bool(true));
+    eval_to!(dict_2_, " { 1: 2 } == { 1: 2, 6: 8 } ", Value::Bool(false));
+    eval_to!(dict_3_, " { 1: 2, 6: 9 } == { 1: 2, 6: 8 } ", Value::Bool(false));
+    eval_to!(dict_4_, " { 1: 2, 6: 8 } == { 1: 2, 6: 8 } ", Value::Bool(true));
+
+    eval_to!(dict_5_, " { 1: 2, 6: 8 }[1] ", Value::Int(2));
+
+    eval_to!(dict_6_, " { 1: 4 }[3][0] ", Value::Str("err".to_string()));
+
+    //
+    // tuples
+    //
+
+    eval_to!(tuple_1_, " (1, 2)[0] ", Value::Int(1));
+    eval_to!(tuple_2_, " (1, 2)[2][0] ", Value::Str("err".to_string()));
+
+    eval_to!(tuple_3_, " (1, 2)[2][1] ", Value::Str("KeyError".to_string()));
+    eval_to!(tuple_4_, " (1, 2)[2][2] ", Value::Int(2));
+
 }

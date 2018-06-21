@@ -31,6 +31,8 @@ pub enum Token<'input> {
     // Operators
     OpenParen,
     CloseParen,
+    OpenBracket,
+    CloseBracket,
     OpenCurly,
     LazyCloseCurly,
     CloseCurly,
@@ -45,6 +47,7 @@ pub enum Token<'input> {
     Question,
     LazyQuestion,
     Semi,
+    Colon,
 
     And,
     Or,
@@ -92,6 +95,8 @@ impl<'input> fmt::Display for Token<'input> {
             // Operators
             &Token::OpenParen => write!(f, "("),
             &Token::CloseParen => write!(f, ")"),
+            &Token::OpenBracket=> write!(f, "["),
+            &Token::CloseBracket=> write!(f, "]"),
             &Token::OpenCurly => write!(f, "{{"),
             &Token::LazyCloseCurly => write!(f, "}}?"),
             &Token::CloseCurly => write!(f, "}}"),
@@ -115,6 +120,7 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::Lt => write!(f, "<"),
             &Token::Gt => write!(f, ">"),
             &Token::Bang => write!(f, "!"),
+            &Token::Colon => write!(f, ":"),
 
             &Token::Minus => write!(f, "-"),
             &Token::Percent => write!(f, "%"),
@@ -242,7 +248,7 @@ impl<'input> Lexer<'input> {
 
             word_re: Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*").unwrap(),
             operator_re: Regex::new(
-                r"^(:?\(|\)|\{|\}\?|\}|,|;|<\*>|\*\?|\*|\+\?|\+|\?\?|\?|\.\.|\.|==|\|\||\||&&|=>|<=|>=|<\+>|</>|<|>|!=|!|=|-|%)").unwrap(),
+                r"^(:?\(|\)|\{|\}\?|\}|,|;|<\*>|\*\?|\*|\+\?|\+|\?\?|\?|\.\.|\.|==|\|\||\||&&|=>|<=|>=|<\+>|</>|<|>|!=|!|=|-|%|:|\[|\])").unwrap(),
         }
     }
 
@@ -306,10 +312,11 @@ impl<'input> Lexer<'input> {
     fn is_start_operator_char(&self, c: char) -> bool {
         match c {
             '{' | '}' | '*' | '+' | '?' | '.' | '|' | ',' | ';' | '=' | '('
-            | ')' | '!' | '&' | '<' | '>' | '-' | '/' | '%' => true,
+            | ')' | '!' | '&' | '<' | '>' | '-' | '/' | '%' | ':' |
+            '[' | ']' => true,
 
             // reserved but not used
-            '[' | ']' | '^' => true,
+            '^' => true,
             _ => false,
         }
     }
@@ -545,6 +552,8 @@ impl<'input> Lexer<'input> {
                 match m.as_str() {
                     "(" => Ok((Token::OpenParen, end)),
                     ")" => Ok((Token::CloseParen, end)),
+                    "[" => Ok((Token::OpenBracket, end)),
+                    "]" => Ok((Token::CloseBracket, end)),
 
                     "{" => Ok((Token::OpenCurly, end)),
                     "}?" => Ok((Token::LazyCloseCurly, end)),
@@ -581,6 +590,7 @@ impl<'input> Lexer<'input> {
                     "</>" => Ok((Token::Div, end)),
                     "<*>" => Ok((Token::Times, end)),
                     "<+>" => Ok((Token::Add, end)),
+                    ":" => Ok((Token::Colon, end)),
 
                     ".." | "=>" => Err(self.error(
                         LexicalErrorKind::ReservedButNotUsedOperator {
@@ -1141,6 +1151,7 @@ mod tests {
     tok_round_trip!(trt_39_, "3.0");
     tok_round_trip!(trt_40_, "\"str\"");
     tok_round_trip!(trt_41_, "'re'");
+    tok_round_trip!(trt_42_, ":");
 
     //
     // Specific lexical errors
