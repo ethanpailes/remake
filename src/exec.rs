@@ -790,6 +790,11 @@ fn exec(env: &mut EvalEnv, s: &Statement) -> Result<(), InternalError> {
                 _ => type_error!(c_val, condition.span.clone(), "bool"),
             }
         }
+
+        StatementKind::Expr(ref e) => {
+            eval_(env, &e)?;
+            Ok(())
+        }
     }
 }
 
@@ -1834,6 +1839,19 @@ mod tests {
     x
     "#,
         Value::Int(4)
+    );
+
+    eval_to!(
+        expr_statement_1_,
+        r#"
+        let x = 1;
+        {
+            x = 2;
+            x
+        };
+        x
+        "#,
+        Value::Int(2)
     );
 
 }

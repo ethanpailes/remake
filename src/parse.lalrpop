@@ -386,6 +386,7 @@ StatementKind: StatementKind = {
     <lv:LValue> "=" <e:Expr0> ";" => {
         StatementKind::Assign(lv, e)
     },
+    <e:Expr0> ";" => StatementKind::Expr(e),
 };
 
 //////////////////////////////////////////////////////////////////////////

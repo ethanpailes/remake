@@ -133,6 +133,7 @@ pub enum StatementKind {
         true_branch: Vec<Statement>,
         false_branch: Vec<Statement>,
     },
+    Expr(Box<Expr>),
 }
 
 #[derive(Debug, Clone)]
