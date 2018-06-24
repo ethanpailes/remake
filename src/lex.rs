@@ -71,6 +71,8 @@ pub enum Token<'input> {
     Let,
     True,
     False,
+    If,
+    Else,
 }
 
 impl<'input> fmt::Display for Token<'input> {
@@ -134,6 +136,8 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::Let => write!(f, "let"),
             &Token::True => write!(f, "true"),
             &Token::False => write!(f, "false"),
+            &Token::If => write!(f, "if"),
+            &Token::Else => write!(f, "else"),
         }
     }
 }
@@ -451,22 +455,22 @@ impl<'input> Lexer<'input> {
                     "let" => Ok((Token::Let, end)),
                     "true" => Ok((Token::True, end)),
                     "false" => Ok((Token::False, end)),
+                    "if" => Ok((Token::If, end)),
+                    "else" => Ok((Token::Else, end)),
 
                     // Reserved Keywords
                     //
                     // "structured" is for a "structured typeof <expr>"
                     // expression which returns a more complicated
                     // description of types than the simple string from typeof.
-                    "if" | "while" | "for" | "fn" | "else" | "match"
-                    | "enum" | "return" | "in" | "typeof" | "structured"
-                    | "continue" | "loop" | "break" | "struct" => {
-                        Err(self.error(
-                            LexicalErrorKind::ReservedButNotUsedKeyword {
-                                word: String::from(m.as_str()),
-                                end: end,
-                            },
-                        ))
-                    }
+                    "while" | "for" | "fn" | "match" | "enum" | "return"
+                    | "in" | "typeof" | "structured" | "continue" | "loop"
+                    | "break" | "struct" => Err(self.error(
+                        LexicalErrorKind::ReservedButNotUsedKeyword {
+                            word: String::from(m.as_str()),
+                            end: end,
+                        },
+                    )),
 
                     id => Ok((Token::Id(id), end)),
                 }
@@ -1078,6 +1082,8 @@ mod tests {
     tok_round_trip!(trt_40_, "\"str\"");
     tok_round_trip!(trt_41_, "'re'");
     tok_round_trip!(trt_42_, ":");
+    tok_round_trip!(trt_43_, "if");
+    tok_round_trip!(trt_44_, "else");
 
     //
     // Specific lexical errors

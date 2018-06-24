@@ -62,6 +62,11 @@ pub enum ExprKind {
     DictLiteral(Vec<(Box<Expr>, Box<Expr>)>),
     TupleLiteral(Vec<Box<Expr>>),
     VectorLiteral(Vec<Box<Expr>>),
+    If {
+        condition: Box<Expr>,
+        true_branch: Box<Expr>,
+        false_branch: Box<Expr>,
+    },
 
     /// A poison expression is never valid, but it lets us avoid copying
     /// the source string and still please the borrow checker.
@@ -119,6 +124,15 @@ impl Statement {
 pub enum StatementKind {
     LetBinding(String, Box<Expr>),
     Assign(Box<Expr>, Box<Expr>),
+    IfTrue {
+        condition: Box<Expr>,
+        true_branch: Vec<Statement>,
+    },
+    IfElse {
+        condition: Box<Expr>,
+        true_branch: Vec<Statement>,
+        false_branch: Vec<Statement>,
+    },
 }
 
 #[derive(Debug, Clone)]

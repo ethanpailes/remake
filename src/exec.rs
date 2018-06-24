@@ -11,11 +11,13 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
+use std::fmt;
 
 use regex_syntax;
 use regex_syntax::ast::{GroupKind, RepetitionKind};
 
-use ast::{BOp, Expr, ExprKind, Statement, StatementKind, UOp};
+use ast;
+use ast::{Expr, ExprKind, Statement, StatementKind};
 use error::{ErrorKind, InternalError};
 use re_operators;
 use re_operators::noncapturing_group;
@@ -49,6 +51,24 @@ impl Value {
             &Value::Tuple(_) => "tuple",
             &Value::Vector(_) => "vec",
         }
+    }
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Value::Int(ref i) => write!(f, "{}", i)?,
+            &Value::Float(ref x) => write!(f, "{}", x)?,
+            &Value::Str(ref s) => write!(f, "{:?}", s)?,
+            &Value::Bool(ref b) => write!(f, "{}", b)?,
+            // TODO: real formatting
+            &Value::Regex(_) => write!(f, "TODO regex")?,
+            &Value::Dict(_) => write!(f, "TODO dict")?,
+            &Value::Tuple(_) => write!(f, "TODO tuple")?,
+            &Value::Vector(_) => write!(f, "TODO vec")?,
+        }
+
+        Ok(())
     }
 }
 
@@ -124,7 +144,7 @@ macro_rules! key_error {
     ($key:expr, $span:expr) => {
         Err(InternalError::new(
             ErrorKind::KeyError {
-                key: "TODO: stringify $key".to_string()
+                key: $key.to_string()
             },
             $span
             ))
@@ -192,7 +212,7 @@ fn eval_(
         }
 
         ExprKind::BinOp(ref l_expr, ref op, ref r_expr) => match op {
-            &BOp::Concat => {
+            &ast::BOp::Concat => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "regex", "str");
@@ -225,7 +245,7 @@ fn eval_(
                 }
             }
 
-            &BOp::Alt => {
+            &ast::BOp::Alt => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "regex");
@@ -246,13 +266,17 @@ fn eval_(
             }
 
             // comparison operators
-            &BOp::Equals => ok(Value::Bool(eval_equals(env, l_expr, r_expr)?)),
-            &BOp::Ne => ok(Value::Bool(!eval_equals(env, l_expr, r_expr)?)),
-            &BOp::Lt => ok(Value::Bool(eval_lt(env, l_expr, r_expr)?)),
-            &BOp::Gt => ok(Value::Bool(eval_gt(env, l_expr, r_expr)?)),
-            &BOp::Le => ok(Value::Bool(eval_le(env, l_expr, r_expr)?)),
-            &BOp::Ge => ok(Value::Bool(eval_ge(env, l_expr, r_expr)?)),
-            &BOp::Or => {
+            &ast::BOp::Equals => {
+                ok(Value::Bool(eval_equals(env, l_expr, r_expr)?))
+            }
+            &ast::BOp::Ne => {
+                ok(Value::Bool(!eval_equals(env, l_expr, r_expr)?))
+            }
+            &ast::BOp::Lt => ok(Value::Bool(eval_lt(env, l_expr, r_expr)?)),
+            &ast::BOp::Gt => ok(Value::Bool(eval_gt(env, l_expr, r_expr)?)),
+            &ast::BOp::Le => ok(Value::Bool(eval_le(env, l_expr, r_expr)?)),
+            &ast::BOp::Ge => ok(Value::Bool(eval_ge(env, l_expr, r_expr)?)),
+            &ast::BOp::Or => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "bool");
@@ -271,7 +295,7 @@ fn eval_(
                     _ => unreachable!("Bug in remake - or"),
                 }
             }
-            &BOp::And => {
+            &ast::BOp::And => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "bool");
@@ -291,7 +315,7 @@ fn eval_(
                 }
             }
 
-            &BOp::Plus => {
+            &ast::BOp::Plus => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "int", "float");
@@ -317,7 +341,7 @@ fn eval_(
                     _ => unreachable!("Bug in remake - plus"),
                 }
             }
-            &BOp::Minus => {
+            &ast::BOp::Minus => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "int", "float");
@@ -343,7 +367,7 @@ fn eval_(
                     _ => unreachable!("Bug in remake - minus"),
                 }
             }
-            &BOp::Div => {
+            &ast::BOp::Div => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "int", "float");
@@ -385,7 +409,7 @@ fn eval_(
                     _ => unreachable!("Bug in remake - div"),
                 }
             }
-            &BOp::Times => {
+            &ast::BOp::Times => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "int", "float");
@@ -411,7 +435,7 @@ fn eval_(
                     _ => unreachable!("Bug in remake - times"),
                 }
             }
-            &BOp::Mod => {
+            &ast::BOp::Mod => {
                 let l_val = eval_(env, l_expr)?;
                 let l_val = l_val.borrow();
                 type_guard!(l_val, l_expr.span.clone(), "int", "float");
@@ -444,40 +468,43 @@ fn eval_(
             let e_val = e_val.borrow();
 
             match op {
-                &UOp::Not => match e_val.deref() {
+                &ast::UOp::Not => match e_val.deref() {
                     &Value::Bool(ref b) => ok(Value::Bool(!*b)),
                     _ => type_error!(e_val, e.span.clone(), "bool"),
                 },
-                &UOp::Neg => match e_val.deref() {
+                &ast::UOp::Neg => match e_val.deref() {
                     &Value::Int(ref i) => ok(Value::Int(-*i)),
                     &Value::Float(ref f) => ok(Value::Float(-*f)),
                     _ => type_error!(e_val, e.span.clone(), "int", "float"),
                 },
-                &UOp::RepeatZeroOrMore(ref greedy) => match e_val.deref() {
-                    &Value::Regex(ref re) => {
-                        ok(rep_zero_or_more(re.clone(), *greedy))
+                &ast::UOp::RepeatZeroOrMore(ref greedy) => {
+                    match e_val.deref() {
+                        &Value::Regex(ref re) => {
+                            ok(rep_zero_or_more(re.clone(), *greedy))
+                        }
+                        _ => type_error!(e_val, e.span.clone(), "regex"),
                     }
-                    _ => type_error!(e_val, e.span.clone(), "regex"),
-                },
-                &UOp::RepeatOneOrMore(ref greedy) => match e_val.deref() {
+                }
+                &ast::UOp::RepeatOneOrMore(ref greedy) => match e_val.deref() {
                     &Value::Regex(ref re) => {
                         ok(rep_one_or_more(re.clone(), *greedy))
                     }
                     _ => type_error!(e_val, e.span.clone(), "regex"),
                 },
-                &UOp::RepeatZeroOrOne(ref greedy) => match e_val.deref() {
+                &ast::UOp::RepeatZeroOrOne(ref greedy) => match e_val.deref() {
                     &Value::Regex(ref re) => {
                         ok(rep_zero_or_one(re.clone(), *greedy))
                     }
                     _ => type_error!(e_val, e.span.clone(), "regex"),
                 },
-                &UOp::RepeatRange(ref greedy, ref range) => match e_val.deref()
-                {
-                    &Value::Regex(ref re) => {
-                        ok(rep_range(re.clone(), *greedy, range.clone()))
+                &ast::UOp::RepeatRange(ref greedy, ref range) => {
+                    match e_val.deref() {
+                        &Value::Regex(ref re) => {
+                            ok(rep_range(re.clone(), *greedy, range.clone()))
+                        }
+                        _ => type_error!(e_val, e.span.clone(), "regex"),
                     }
-                    _ => type_error!(e_val, e.span.clone(), "regex"),
-                },
+                }
             }
         }
 
@@ -620,6 +647,26 @@ fn eval_(
             ref end,
         } => eval_slice(env, collection, start, end),
 
+        ExprKind::If {
+            ref condition,
+            ref true_branch,
+            ref false_branch,
+        } => {
+            let c_val = eval_(env, condition)?;
+            let c_val = c_val.borrow();
+
+            match c_val.deref() {
+                &Value::Bool(ref b) => {
+                    if *b {
+                        eval_(env, true_branch)
+                    } else {
+                        eval_(env, false_branch)
+                    }
+                }
+                _ => type_error!(c_val, condition.span.clone(), "bool"),
+            }
+        }
+
         ExprKind::ExprPoison => panic!("Bug in remake - poison expr"),
     }
 }
@@ -667,27 +714,19 @@ fn exec(env: &mut EvalEnv, s: &Statement) -> Result<(), InternalError> {
                         }
 
                         &mut Value::Dict(ref mut d) => {
-                            let mut val_ref;
-                            {
-                                let k_valb = k_val.borrow();
-                                type_guard!(
-                                    k_valb,
-                                    key.span.clone(),
-                                    "str",
-                                    "int",
-                                    "float",
-                                    "bool"
-                                );
-                                val_ref = d.get_mut(&k_valb.deref());
-                            }
+                            let k_val = k_val.borrow();
+                            type_guard!(
+                                k_val,
+                                key.span.clone(),
+                                "str",
+                                "int",
+                                "float",
+                                "bool"
+                            );
 
-                            return match val_ref {
-                                Some(val) => {
-                                    *val = eval_(env, &e)?;
-                                    Ok(())
-                                }
-                                None => key_error!(k_valb, key.span.clone()),
-                            };
+                            d.insert(k_val.deref().clone(), eval_(env, &e)?);
+
+                            return Ok(());
                         }
 
                         _ => {} // FALLTHROUGH: to please the borrow chk
@@ -702,6 +741,53 @@ fn exec(env: &mut EvalEnv, s: &Statement) -> Result<(), InternalError> {
                     )
                 }
                 _ => unreachable!("Bug in remake - assign to non-lvalue"),
+            }
+        }
+
+        StatementKind::IfElse {
+            ref condition,
+            ref true_branch,
+            ref false_branch,
+        } => {
+            let c_val = eval_(env, condition)?;
+            let c_val = c_val.borrow();
+
+            match c_val.deref() {
+                &Value::Bool(ref b) => {
+                    if *b {
+                        for s in true_branch {
+                            exec(env, s)?;
+                        }
+                    } else {
+                        for s in false_branch {
+                            exec(env, s)?;
+                        }
+                    }
+
+                    Ok(())
+                }
+                _ => type_error!(c_val, condition.span.clone(), "bool"),
+            }
+        }
+
+        StatementKind::IfTrue {
+            ref condition,
+            ref true_branch,
+        } => {
+            let c_val = eval_(env, condition)?;
+            let c_val = c_val.borrow();
+
+            match c_val.deref() {
+                &Value::Bool(ref b) => {
+                    if *b {
+                        for s in true_branch {
+                            exec(env, s)?;
+                        }
+                    }
+
+                    Ok(())
+                }
+                _ => type_error!(c_val, condition.span.clone(), "bool"),
             }
         }
     }
@@ -1233,7 +1319,10 @@ mod tests {
             fn $test_name() {
                 let parser = BlockBodyParser::new();
                 let lexer = lex::Lexer::new($remake_src);
-                let expr = eval(&parser.parse(lexer).unwrap()).unwrap();
+                let expr = match eval(&parser.parse(lexer).unwrap()) {
+                    Ok(e) => e,
+                    Err(e) => panic!("{}", e.overlay($remake_src)),
+                };
 
                 assert!(
                     test_eq(&$expected_value, &expr),
@@ -1266,21 +1355,35 @@ mod tests {
             fn $test_name() {
                 let parser = BlockBodyParser::new();
                 let lexer = lex::Lexer::new($remake_src);
-                let expr = eval(&parser.parse(lexer).unwrap());
+                match parser.parse(lexer) {
+                    Ok(expr) =>
+                        match eval(&expr) {
+                            Ok(_) => panic!(
+                                "The expr '{}' should not evaulate to anything",
+                                $remake_src
+                            ),
+                            Err(e) => {
+                                let err = e.overlay($remake_src).to_string();
+                                assert!(err.contains($error_frag),
+                                    "The expr '{}' must have an error containing '{}' (actually '{}')",
+                                    $remake_src,
+                                    $error_frag,
+                                    err
+                                );
+                            }
+                        }
 
-                match expr {
-                    Ok(_) => panic!(
-                        "The expr '{}' should not evaulate to anything",
-                        $remake_src
-                    ),
-                    Err(e) => assert!(
-                        format!("{}", e.overlay($remake_src))
-                            .contains($error_frag),
-                        "The expr '{}' must have an error containing '{}'",
-                        $remake_src,
-                        $error_frag,
-                    ),
+                    Err(e) => {
+                        let err = e.to_string();
+                        assert!(err.contains($error_frag),
+                            "The expr '{}' must have an error containing '{}' (actually '{}')",
+                            $remake_src,
+                            $error_frag,
+                            err,
+                        )
+                    }
                 }
+
             }
         };
     }
@@ -1480,14 +1583,14 @@ mod tests {
         Value::Str("exciting!".to_string())
     );
 
-    eval_fail!(
+    eval_to!(
         dict_8_,
         r#"
     let x = {0: 1, "hello": "world" };
     x[6] = 5;
-    x[0]
+    x[6]
     "#,
-        "KeyError"
+        Value::Int(5)
     );
 
     eval_to!(
@@ -1495,13 +1598,50 @@ mod tests {
         " { 6: 8, 1: 2 } == { 1: 2, 6: 8 } ",
         Value::Bool(true)
     );
-    // eval_to!(dict_10_, " { 6: 8, 1: 2 } == { 1: 2, 6: 8 } ",
-    // Value::Bool(true));
+    eval_to!(
+        dict_10_,
+        " { 6: 8, 1: 2 } == { 1: 2, 6: 8 } ",
+        Value::Bool(true)
+    );
 
-    // TODO(ethan): dict[key] as lvalue
+    eval_to!(dict_11_, " { 6.9: 8, 1: 2 }[6.9] ", Value::Int(8));
+
+    eval_to!(dict_12_, r#" { "hi": 8, 1: 2 }["hi"] "#, Value::Int(8));
+
+    eval_to!(
+        dict_13_,
+        r#"
+        let ht = {};
+        ht["hi"] = 5;
+        ht["hi"]
+        "#,
+        Value::Int(5)
+    );
+
+    eval_fail!(
+        dict_14_,
+        r#"
+        let ht = {};
+        ht[{3:4}] = 5;
+        ht
+        "#,
+        "TypeError"
+    );
+    eval_fail!(
+        dict_15_,
+        r#"
+        let ht = {};
+        ht[ [5, 6, 7] ] = 5;
+        ht
+        "#,
+        "TypeError"
+    );
+
+    // TODO(ethan): tuples as keys
     // TODO(ethan): extend dict with other dict (requires functions)
     // TODO(ethan): keys (requires functions)
     // TODO(ethan): items (requires functions)
+    // TODO(ethan): builtin containment checks with the `in` keyword
 
     //
     // tuples
@@ -1601,7 +1741,99 @@ mod tests {
         "KeyError"
     );
 
-    // TODO(ethan): vec[1] as lvalue
     // TODO(ethan): append to vector (requires functions)
     // TODO(ethan): extend vector (requires functions)
+
+    //
+    // If expressions & statements
+    //
+
+    // if expressions
+    eval_to!(if_1_, " if (true) { 1 } else { 0 } ", Value::Int(1));
+    eval_to!(if_2_, " if (false) { 1 } else { 0 } ", Value::Int(0));
+    eval_fail!(if_3_, " if (false) { 1 } ", "Unrecognized EOF"); // parse error
+    eval_to!(
+        if_4_,
+        r#"
+    if (false) {
+        1
+    } else if (4 == 7) {
+        2
+    } else if (9 < 6) {
+        3
+    } else if ("hello" == "world") {
+        4
+    } else if (1 <+> 1 == 2) {
+        5
+    } else {
+        0
+    }
+    "#,
+        Value::Int(5)
+    );
+
+    eval_to!(
+        if_5_,
+        r#"
+    let x = 5;
+    if (1 == 1) {
+        let y = 7;
+        y = "this is a dynamically typed language";
+        x = 9;
+    }
+    x
+    "#,
+        Value::Int(9)
+    );
+
+    eval_to!(
+        if_6_,
+        r#"
+    let x = 5;
+    if (1 == 2) {
+        x = 9;
+    } else {
+        x = 18;
+    }
+    x
+    "#,
+        Value::Int(18)
+    );
+
+    eval_to!(
+        if_7_,
+        r#"
+    let x = 5;
+    if (1 == 11) {
+        x = 9;
+    } else if (8 > 3) {
+        x = 2;
+        x = 4;
+    } else {
+        x = 10;
+    }
+    x
+    "#,
+        Value::Int(4)
+    );
+
+    eval_to!(
+        if_8_,
+        r#"
+    let x = 5;
+    if (1 == 11) {
+        x = 9;
+    } else if (8 > 3) {
+        x = 2;
+        x = 4;
+    } else if (false) {
+        x = "how";
+    } else {
+        x = 10;
+    }
+    x
+    "#,
+        Value::Int(4)
+    );
+
 }

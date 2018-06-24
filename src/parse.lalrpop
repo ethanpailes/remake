@@ -74,6 +74,8 @@ extern {
         "as" => lex::Token::As,
         "cap" => lex::Token::Cap,
         "let" => lex::Token::Let,
+        "if" => lex::Token::If,
+        "else" => lex::Token::Else,
     }
 }
 
@@ -160,32 +162,7 @@ Expr3: Box<Expr> = {
         Box::new(Expr::new(e, Span { start: l, end: r }))
 };
 ExprKind3: ExprKind = {
-    <e:Expr3> "*" => ExprKind::UnaryOp(UOp::RepeatZeroOrMore(true), e),
-    <e:Expr3> "*?" => ExprKind::UnaryOp(UOp::RepeatZeroOrMore(false), e),
-    <e:Expr3> "+" => ExprKind::UnaryOp(UOp::RepeatOneOrMore(true), e),
-    <e:Expr3> "+?" => ExprKind::UnaryOp(UOp::RepeatOneOrMore(false), e),
-    <e:Expr3> "?" => ExprKind::UnaryOp(UOp::RepeatZeroOrOne(true), e),
-    <e:Expr3> "??" => ExprKind::UnaryOp(UOp::RepeatZeroOrOne(false), e),
-
-    <e:Expr3> "{" <i:"int"> "}" =>
-        ExprKind::UnaryOp(UOp::RepeatRange(
-            false, RepetitionRange::Exactly(i as u32)), e),
-    <e:Expr3> "{" <i:"int"> "," "}" =>
-        ExprKind::UnaryOp(UOp::RepeatRange(
-            false, RepetitionRange::AtLeast(i as u32)), e),
-    <e:Expr3> "{" <i1:"int"> "," <i2:"int"> "}" =>
-        ExprKind::UnaryOp(UOp::RepeatRange(
-            false, RepetitionRange::Bounded(i1 as u32, i2 as u32)), e),
-
-    <e:Expr3> "{" <i:"int"> "}?" =>
-        ExprKind::UnaryOp(UOp::RepeatRange(
-            true, RepetitionRange::Exactly(i as u32)), e),
-    <e:Expr3> "{" <i:"int"> "," "}?" =>
-        ExprKind::UnaryOp(UOp::RepeatRange(
-            true, RepetitionRange::AtLeast(i as u32)), e),
-    <e:Expr3> "{" <i1:"int"> "," <i2:"int"> "}?" =>
-        ExprKind::UnaryOp(UOp::RepeatRange(
-            true, RepetitionRange::Bounded(i1 as u32, i2 as u32)), e),
+    // TODO(ethan): remove if it isn't useful
 
     ExprKind4,
 };
@@ -195,11 +172,14 @@ Expr4: Box<Expr> = {
         Box::new(Expr::new(e, Span { start: l, end: r }))
 };
 ExprKind4: ExprKind = {
-    <e1:Expr4> "<+>" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Plus, e2),
-    <e1:Expr4> "<*>" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Times, e2),
-    <e1:Expr4> "</>" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Div, e2),
-    <e1:Expr4> "-" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Minus, e2),
-    <e1:Expr4> "%" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Mod, e2),
+    <e1:Expr4> "==" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Equals, e2),
+    <e1:Expr4> "!=" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Ne, e2),
+    <e1:Expr4> "<" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Lt, e2),
+    <e1:Expr4> ">" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Gt, e2),
+    <e1:Expr4> "<=" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Le, e2),
+    <e1:Expr4> ">=" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Ge, e2),
+    <e1:Expr4> "&&" <e2:Expr5> => ExprKind::BinOp(e1, BOp::And, e2),
+    <e1:Expr4> "||" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Or, e2),
 
     ExprKind5,
 };
@@ -209,16 +189,47 @@ Expr5: Box<Expr> = {
         Box::new(Expr::new(e, Span { start: l, end: r }))
 };
 ExprKind5: ExprKind = {
+    //
+    // Arith operators
+    //
     "!" <e:Expr6> => ExprKind::UnaryOp(UOp::Not, e),
     "-" <e:Expr6> => ExprKind::UnaryOp(UOp::Neg, e),
-    <e1:Expr5> "==" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Equals, e2),
-    <e1:Expr5> "!=" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Ne, e2),
-    <e1:Expr5> "<" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Lt, e2),
-    <e1:Expr5> ">" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Gt, e2),
-    <e1:Expr5> "<=" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Le, e2),
-    <e1:Expr5> ">=" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Ge, e2),
-    <e1:Expr5> "&&" <e2:Expr6> => ExprKind::BinOp(e1, BOp::And, e2),
-    <e1:Expr5> "||" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Or, e2),
+
+    <e1:Expr5> "<+>" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Plus, e2),
+    <e1:Expr5> "<*>" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Times, e2),
+    <e1:Expr5> "</>" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Div, e2),
+    <e1:Expr5> "-" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Minus, e2),
+    <e1:Expr5> "%" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Mod, e2),
+
+    //
+    // Regex operators
+    //
+    <e:Expr5> "*" => ExprKind::UnaryOp(UOp::RepeatZeroOrMore(true), e),
+    <e:Expr5> "*?" => ExprKind::UnaryOp(UOp::RepeatZeroOrMore(false), e),
+    <e:Expr5> "+" => ExprKind::UnaryOp(UOp::RepeatOneOrMore(true), e),
+    <e:Expr5> "+?" => ExprKind::UnaryOp(UOp::RepeatOneOrMore(false), e),
+    <e:Expr5> "?" => ExprKind::UnaryOp(UOp::RepeatZeroOrOne(true), e),
+    <e:Expr5> "??" => ExprKind::UnaryOp(UOp::RepeatZeroOrOne(false), e),
+
+    <e:Expr5> "{" <i:"int"> "}" =>
+        ExprKind::UnaryOp(UOp::RepeatRange(
+            false, RepetitionRange::Exactly(i as u32)), e),
+    <e:Expr5> "{" <i:"int"> "," "}" =>
+        ExprKind::UnaryOp(UOp::RepeatRange(
+            false, RepetitionRange::AtLeast(i as u32)), e),
+    <e:Expr5> "{" <i1:"int"> "," <i2:"int"> "}" =>
+        ExprKind::UnaryOp(UOp::RepeatRange(
+            false, RepetitionRange::Bounded(i1 as u32, i2 as u32)), e),
+
+    <e:Expr5> "{" <i:"int"> "}?" =>
+        ExprKind::UnaryOp(UOp::RepeatRange(
+            true, RepetitionRange::Exactly(i as u32)), e),
+    <e:Expr5> "{" <i:"int"> "," "}?" =>
+        ExprKind::UnaryOp(UOp::RepeatRange(
+            true, RepetitionRange::AtLeast(i as u32)), e),
+    <e:Expr5> "{" <i1:"int"> "," <i2:"int"> "}?" =>
+        ExprKind::UnaryOp(UOp::RepeatRange(
+            true, RepetitionRange::Bounded(i1 as u32, i2 as u32)), e),
 
     ExprKind6,
 };
@@ -238,6 +249,38 @@ ExprKind6: ExprKind = {
     "{" <entries: Comma<DictEntry>> "}" => ExprKind::DictLiteral(entries),
     "(" <entries: Comma1<Expr0>> ")" => ExprKind::TupleLiteral(entries),
     "[" <entries: Comma<Expr0>> "]" => ExprKind::VectorLiteral(entries),
+
+
+    "if" "(" <cond: Expr0> ")" "{"
+        <true_branch: Expr0>
+    <middle_branches: ("}" "else" "if" "(" Expr0 ")" "{" Expr0)*>
+    "}" "else" "{"
+        <false_branch: Expr0>
+    "}"
+    => {
+        let mut false_branch = false_branch;
+        for branch in middle_branches.into_iter().rev() {
+            let cond = branch.4;
+            let branch = branch.7;
+            let l = cond.span.start;
+            let r = branch.span.end;
+
+            false_branch = Box::new(Expr::new(
+                ExprKind::If {
+                    condition: cond,
+                    true_branch: branch,
+                    false_branch: false_branch,
+                },
+                Span { start: l, end: r }));
+        }
+
+        ExprKind::If {
+            condition: cond,
+            true_branch: true_branch,
+            false_branch: false_branch,
+        }
+    },
+
     "(" <ExprKind0> ")",
 };
 
@@ -252,21 +295,6 @@ LValueKind: ExprKind = {
 
 DictEntry: (Box<Expr>, Box<Expr>) =
     <key: Expr0> ":" <value: Expr0> => (key, value);
-
-Comma<Rule>: Vec<Rule> =
-    <rules: (<Rule> ",")*> <last: Rule?> => {
-        let mut rules = rules;
-        rules.extend(last);
-        rules
-    };
-
-Comma1<Rule>: Vec<Rule> =
-    <first: Rule> "," <middle: (<Rule> ",")*> <last: Rule?> => {
-        let mut rules = vec![first];
-        rules.extend(middle);
-        rules.extend(last);
-        rules
-    };
 
 RegexLiteral: Box<regex_syntax::ast::Ast> = {
 
@@ -310,14 +338,72 @@ RegexLiteral: Box<regex_syntax::ast::Ast> = {
 //////////////////////////////////////////////////////////////////////////
 
 Statement: Statement = {
-    <l: @L> <s:StatementKind> ";" <r: @R> =>
+    <l: @L> <s:StatementKind> <r: @R> =>
         Statement::new(s, Span { start: l, end: r })
 };
 StatementKind: StatementKind = {
-    "let" <id:"identifier"> "=" <e:Expr0> => {
+    "if" "(" <cond: Expr0> ")" "{"
+        <true_branch: Statement+>
+    "}" =>
+        StatementKind::IfTrue {
+            condition: cond,
+            true_branch: true_branch,
+        },
+
+    "if" "(" <cond: Expr0> ")" "{"
+        <true_branch: Statement+>
+    <middle_branches: ("}" "else" "if" "(" Expr0 ")" "{" Statement+)*>
+    "}" "else" "{"
+        <false_branch: Statement+>
+    "}"
+    => {
+        let mut false_branch = false_branch;
+        for branch in middle_branches.into_iter().rev() {
+            let cond = branch.4;
+            let block = branch.7;
+            let l = cond.span.start;
+            let r = block[block.len() - 1].span.end;
+
+            false_branch = vec![Statement::new(
+                StatementKind::IfElse {
+                    condition: cond,
+                    true_branch: block,
+                    false_branch: false_branch,
+                },
+                Span { start: l, end: r })];
+        }
+
+        StatementKind::IfElse {
+            condition: cond,
+            true_branch: true_branch,
+            false_branch: false_branch,
+        }
+    },
+
+    "let" <id:"identifier"> "=" <e:Expr0> ";" => {
         StatementKind::LetBinding(String::from(id), e)
     },
-    <lv:LValue> "=" <e:Expr0> => {
+    <lv:LValue> "=" <e:Expr0> ";" => {
         StatementKind::Assign(lv, e)
     },
 };
+
+//////////////////////////////////////////////////////////////////////////
+//                                                                      //
+//                            Utilities                                 //
+//                                                                      //
+//////////////////////////////////////////////////////////////////////////
+
+Comma<Rule>: Vec<Rule> =
+    <rules: (<Rule> ",")*> <last: Rule?> => {
+        let mut rules = rules;
+        rules.extend(last);
+        rules
+    };
+
+Comma1<Rule>: Vec<Rule> =
+    <rules: (<Rule> ",")+> <last: Rule?> => {
+        let mut rules = rules;
+        rules.extend(last);
+        rules
+    };

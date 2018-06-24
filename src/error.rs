@@ -146,6 +146,13 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
     }
 }
 
+impl<'a, 'e> fmt::Debug for ErrorSrcOverlay<'a, 'e> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "{}", self)?;
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub enum ErrorKind {
     //
