@@ -1468,6 +1468,40 @@ mod tests {
 
     eval_to!(prim_cmp_49_, " !true ", Value::Bool(false));
 
+    eval_fail!(prim_cmp_50_, r#" /re/ == 3 "#, "TypeError");
+    eval_fail!(prim_cmp_51_, r#" "str" == 3 "#, "TypeError");
+    eval_fail!(prim_cmp_52_, r#" {} == 3 "#, "TypeError");
+    eval_fail!(prim_cmp_53_, r#" [] == 3 "#, "TypeError");
+    eval_fail!(prim_cmp_54_, r#" (3,4) == 3 "#, "TypeError");
+
+    eval_to!(prim_cmp_55_, r#" {1:2} == {1:2} "#, Value::Bool(true));
+    eval_to!(
+        prim_cmp_56_,
+        r#" (1,2,(3,4)) == (1,2,(3,4)) "#,
+        Value::Bool(true)
+    );
+    eval_to!(
+        prim_cmp_57_,
+        r#" [1,2,[3,4]] == [1,2,[3,4]] "#,
+        Value::Bool(true)
+    );
+
+    eval_fail!(prim_cmp_58_, r#" "str" < 3 "#, "TypeError");
+    eval_fail!(prim_cmp_59_, r#" 3.1 < 3 "#, "TypeError");
+    eval_fail!(prim_cmp_60_, r#" 3 < 3.1 "#, "TypeError");
+
+    eval_fail!(prim_cmp_61_, r#" "str" > 3 "#, "TypeError");
+    eval_fail!(prim_cmp_62_, r#" 3.1 > 3 "#, "TypeError");
+    eval_fail!(prim_cmp_63_, r#" 3 > 3.1 "#, "TypeError");
+
+    eval_fail!(prim_cmp_64_, r#" "str" <= 3 "#, "TypeError");
+    eval_fail!(prim_cmp_65_, r#" 3.1 <= 3 "#, "TypeError");
+    eval_fail!(prim_cmp_66_, r#" 3 <= 3.1 "#, "TypeError");
+
+    eval_fail!(prim_cmp_67_, r#" "str" >= 3 "#, "TypeError");
+    eval_fail!(prim_cmp_68_, r#" 3.1 >= 3 "#, "TypeError");
+    eval_fail!(prim_cmp_69_, r#" 3 >= 3.1 "#, "TypeError");
+
     //
     // Arith Ops
     //
@@ -1502,6 +1536,22 @@ mod tests {
     eval_fail!(arith_24_, " 're' <+> 2 ", "TypeError");
 
     eval_fail!(arith_25_, " 19 </> 0", "ZeroDivisionError");
+    eval_fail!(arith_26_, " 19.0 </> 0.0 ", "ZeroDivisionError");
+
+    eval_fail!(arith_27_, " 19 </> 0.0", "TypeError");
+    eval_fail!(arith_28_, " 19.0 </> 0 ", "TypeError");
+
+    eval_fail!(arith_29_, r#" - "hello" "#, "TypeError");
+    eval_fail!(arith_30_, r#" ! "hello" "#, "TypeError");
+    eval_fail!(arith_31_, r#" "hello"{1} "#, "TypeError");
+    eval_fail!(arith_32_, r#" "hello"{1,} "#, "TypeError");
+    eval_fail!(arith_33_, r#" "hello"{1,2} "#, "TypeError");
+    eval_fail!(arith_34_, r#" "hello"? "#, "TypeError");
+    eval_fail!(arith_35_, r#" "hello"+ "#, "TypeError");
+    eval_fail!(arith_36_, r#" "hello"* "#, "TypeError");
+
+    eval_fail!(arith_37_, r#" 5.8 % 2 "#, "TypeError");
+    eval_fail!(arith_38_, r#" 5 <*> 2.0 "#, "TypeError");
 
     //
     // Assignment
@@ -1682,6 +1732,18 @@ mod tests {
         "KeyError"
     );
 
+    eval_fail!(tuple_7_, r#" (1, 2)["bad key"] "#, "TypeError");
+
+    eval_fail!(
+        tuple_8_,
+        r#"
+    let x = (1, 2);
+    x["bad key"] = 5;
+    x[0]
+    "#,
+        "TypeError"
+    );
+
     //
     // vectors
     //
@@ -1745,6 +1807,26 @@ mod tests {
     "#,
         "KeyError"
     );
+
+    eval_fail!(tuple_18_, r#" [1, 2]["bad key"] "#, "TypeError");
+
+    eval_fail!(
+        vec_19_,
+        r#"
+    let x = [1, 2];
+    x["bad key"] = 5;
+    x[0]
+    "#,
+        "TypeError"
+    );
+
+    eval_to!(vec_20_, " [1, 2, 3][-2:][0] ", Value::Int(2));
+
+    eval_fail!(vec_21_, r#" [1, 2]["bad key":"bad key"] "#, "TypeError");
+    eval_fail!(vec_22_, r#" [1, 2]["bad key":] "#, "TypeError");
+    eval_fail!(vec_23_, r#" [1, 2][:"bad key"] "#, "TypeError");
+    eval_fail!(vec_24_, r#" [1, 2][1:"bad key"] "#, "TypeError");
+    eval_fail!(vec_25_, r#" (3, 4)[1:2] "#, "TypeError");
 
     // TODO(ethan): append to vector (requires functions)
     // TODO(ethan): extend vector (requires functions)
@@ -1841,6 +1923,20 @@ mod tests {
         Value::Int(4)
     );
 
+    eval_fail!(if_9_, r#" if (1) { 9 } else { 10 } "#, "TypeError");
+    eval_fail!(
+        if_10_,
+        r#"
+        if (1) { let y = 1; }
+        5
+        "#,
+        "TypeError"
+    );
+
+    //
+    // Misc
+    //
+
     eval_to!(
         expr_statement_1_,
         r#"
@@ -1853,5 +1949,9 @@ mod tests {
         "#,
         Value::Int(2)
     );
+
+    eval_fail!(cap_1_, r#" cap 3.5 as foo "#, "TypeError");
+
+    eval_fail!(bad_index_1_, r#" 3[9] "#, "TypeError");
 
 }
