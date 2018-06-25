@@ -2170,6 +2170,75 @@ mod tests {
     );
 
     //
+    // Loop Loops
+    //
+
+    eval_to!(
+        loop_loop_1_,
+        r#"
+        let cnt = 1;
+        let sum = 0;
+        loop {
+            if (!(cnt < 4)) {
+                break;
+            }
+            sum = sum <+> cnt;
+            cnt = cnt <+> 1;
+        }
+        sum
+        "#,
+        Value::Int(6)
+    );
+
+    eval_to!(
+        loop_loop_2_,
+        r#"
+        let cnt = 0;
+        let sum = 0;
+        loop {
+            if (!(cnt < 3)) {
+                break;
+            }
+            cnt = cnt <+> 1;
+            if (cnt == 2) {
+                continue;
+            }
+            sum = sum <+> cnt;
+        }
+        sum
+        "#,
+        Value::Int(4)
+    );
+
+    eval_to!(
+        loop_loop_3_,
+        r#"
+        let cnt = 1;
+        let sum = 0;
+        loop {
+            if (cnt == 2) {
+                break;
+            }
+            sum = sum <+> cnt;
+            cnt = cnt <+> 1;
+        }
+        sum
+        "#,
+        Value::Int(1)
+    );
+
+    eval_to!(
+        loop_loop_4_,
+        r#"
+        let v = [1, 2, 3, "term"];
+        let i = -1;
+        loop { i = i <+> 1; if (v[i] == "term") { break; } }
+        v[i]
+        "#,
+        Value::Str("term".to_string())
+    );
+
+    //
     //
     // Misc
     //

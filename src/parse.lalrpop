@@ -81,6 +81,7 @@ extern {
         "break" => lex::Token::Break,
         "continue" => lex::Token::Continue,
         "while" => lex::Token::While,
+        "loop" => lex::Token::Loop,
     }
 }
 
@@ -404,6 +405,20 @@ StatementKind: StatementKind = {
     "}" => {
         StatementKind::While {
             condition: condition,
+            body: body,
+        }
+    },
+
+    <l: @L> "loop" <r: @R> "{"
+        // we do allow empty while body, cause that can sometimes be
+        // useful for some hackery
+        <body: Statement*>
+    "}" => {
+        StatementKind::While {
+            condition: Box::new(Expr::new(
+                ExprKind::BoolLiteral(true),
+                Span { start: l, end: r }
+                )),
             body: body,
         }
     },
