@@ -461,6 +461,30 @@ fn eval_(
                     _ => unreachable!("Bug in remake - mod"),
                 }
             }
+
+            &ast::BOp::In => {
+                let l_val = eval_(env, l_expr)?;
+                let l_val = l_val.borrow();
+                type_guard!(
+                    l_val,
+                    l_expr.span.clone(),
+                    "str",
+                    "int",
+                    "float",
+                    "bool"
+                );
+
+                let r_val = eval_(env, r_expr)?;
+                let r_val = r_val.borrow();
+
+                match r_val.deref() {
+                    &Value::Dict(ref d) => {
+                        return ok(Value::Bool(d.contains_key(l_val.deref())));
+                    }
+                    _ => {} // FALLTHROUGH
+                }
+                type_error!(r_val, r_expr.span.clone(), "dict")
+            }
         },
 
         ExprKind::UnaryOp(ref op, ref e) => {
@@ -1690,6 +1714,18 @@ mod tests {
         ht
         "#,
         "TypeError"
+    );
+
+    eval_to!(
+        dict_16_,
+        r#" "key" in { "key": "val" } "#,
+        Value::Bool(true)
+    );
+
+    eval_to!(
+        dict_17_,
+        r#" "bad key" in { "key": "val" } "#,
+        Value::Bool(false)
     );
 
     // TODO(ethan): tuples as keys

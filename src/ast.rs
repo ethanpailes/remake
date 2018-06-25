@@ -93,6 +93,8 @@ pub enum BOp {
     Div,
     Times,
     Mod,
+
+    In,
 }
 
 #[derive(Debug, Clone)]

@@ -73,6 +73,7 @@ pub enum Token<'input> {
     False,
     If,
     Else,
+    In,
 }
 
 impl<'input> fmt::Display for Token<'input> {
@@ -138,6 +139,7 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::False => write!(f, "false"),
             &Token::If => write!(f, "if"),
             &Token::Else => write!(f, "else"),
+            &Token::In => write!(f, "in"),
         }
     }
 }
@@ -457,6 +459,7 @@ impl<'input> Lexer<'input> {
                     "false" => Ok((Token::False, end)),
                     "if" => Ok((Token::If, end)),
                     "else" => Ok((Token::Else, end)),
+                    "in" => Ok((Token::In, end)),
 
                     // Reserved Keywords
                     //
@@ -464,7 +467,7 @@ impl<'input> Lexer<'input> {
                     // expression which returns a more complicated
                     // description of types than the simple string from typeof.
                     "while" | "for" | "fn" | "match" | "enum" | "return"
-                    | "in" | "typeof" | "structured" | "continue" | "loop"
+                    | "typeof" | "structured" | "continue" | "loop"
                     | "break" | "struct" => Err(self.error(
                         LexicalErrorKind::ReservedButNotUsedKeyword {
                             word: String::from(m.as_str()),
@@ -1084,6 +1087,7 @@ mod tests {
     tok_round_trip!(trt_42_, ":");
     tok_round_trip!(trt_43_, "if");
     tok_round_trip!(trt_44_, "else");
+    tok_round_trip!(trt_45_, "in");
 
     //
     // Specific lexical errors

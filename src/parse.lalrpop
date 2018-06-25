@@ -76,6 +76,7 @@ extern {
         "let" => lex::Token::Let,
         "if" => lex::Token::If,
         "else" => lex::Token::Else,
+        "in" => lex::Token::In,
     }
 }
 
@@ -180,6 +181,7 @@ ExprKind4: ExprKind = {
     <e1:Expr4> ">=" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Ge, e2),
     <e1:Expr4> "&&" <e2:Expr5> => ExprKind::BinOp(e1, BOp::And, e2),
     <e1:Expr4> "||" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Or, e2),
+    <e1:Expr4> "in" <e2:Expr5> => ExprKind::BinOp(e1, BOp::In, e2),
 
     ExprKind5,
 };
