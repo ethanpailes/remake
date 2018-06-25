@@ -26,8 +26,8 @@ use lex;
 /// Again, this isn't user facing, so there is no need.
 #[derive(Debug)]
 pub struct InternalError {
-    kind: ErrorKind,
-    span: Span,
+    pub kind: ErrorKind,
+    pub span: Span,
 }
 
 impl InternalError {
@@ -133,6 +133,16 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
                     neum
                 )?;
             }
+            &LoopError { ref keyword } => {
+                writeln!(
+                    f,
+                    "LoopError: '{}' not properly within loop",
+                    match keyword {
+                        &LoopErrorKind::Break => "break",
+                        &LoopErrorKind::Continue => "continue",
+                    }
+                )?;
+            }
             &FinalValueNotRegex { ref actual } => {
                 writeln!(
                     f,
@@ -193,6 +203,15 @@ pub enum ErrorKind {
     FinalValueNotRegex {
         actual: String,
     },
+    LoopError {
+        keyword: LoopErrorKind,
+    },
+}
+
+#[derive(Debug)]
+pub enum LoopErrorKind {
+    Continue,
+    Break,
 }
 
 #[derive(Debug)]

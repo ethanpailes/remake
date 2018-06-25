@@ -77,6 +77,9 @@ extern {
         "if" => lex::Token::If,
         "else" => lex::Token::Else,
         "in" => lex::Token::In,
+        "for" => lex::Token::For,
+        "break" => lex::Token::Break,
+        "continue" => lex::Token::Continue,
     }
 }
 
@@ -382,6 +385,16 @@ StatementKind: StatementKind = {
         }
     },
 
+    "for" "(" <var:"identifier"> "in" <collection:Expr0> ")" "{"
+        <body: Statement+>
+    "}" => {
+        StatementKind::For {
+            variable: var.to_string(),
+            collection: collection,
+            body: body,
+        }
+    },
+
     "let" <id:"identifier"> "=" <e:Expr0> ";" => {
         StatementKind::LetBinding(String::from(id), e)
     },
@@ -389,6 +402,8 @@ StatementKind: StatementKind = {
         StatementKind::Assign(lv, e)
     },
     <e:Expr0> ";" => StatementKind::Expr(e),
+    "break" ";" => StatementKind::Break,
+    "continue" ";" => StatementKind::Continue,
 };
 
 //////////////////////////////////////////////////////////////////////////

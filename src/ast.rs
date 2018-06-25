@@ -136,6 +136,13 @@ pub enum StatementKind {
         false_branch: Vec<Statement>,
     },
     Expr(Box<Expr>),
+    For {
+        variable: String,
+        collection: Box<Expr>,
+        body: Vec<Statement>,
+    },
+    Continue,
+    Break,
 }
 
 #[derive(Debug, Clone)]

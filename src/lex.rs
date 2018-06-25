@@ -74,6 +74,9 @@ pub enum Token<'input> {
     If,
     Else,
     In,
+    For,
+    Continue,
+    Break,
 }
 
 impl<'input> fmt::Display for Token<'input> {
@@ -140,6 +143,9 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::If => write!(f, "if"),
             &Token::Else => write!(f, "else"),
             &Token::In => write!(f, "in"),
+            &Token::For => write!(f, "for"),
+            &Token::Continue => write!(f, "continue"),
+            &Token::Break => write!(f, "break"),
         }
     }
 }
@@ -460,15 +466,17 @@ impl<'input> Lexer<'input> {
                     "if" => Ok((Token::If, end)),
                     "else" => Ok((Token::Else, end)),
                     "in" => Ok((Token::In, end)),
+                    "for" => Ok((Token::For, end)),
+                    "continue" => Ok((Token::Continue, end)),
+                    "break" => Ok((Token::Break, end)),
 
                     // Reserved Keywords
                     //
                     // "structured" is for a "structured typeof <expr>"
                     // expression which returns a more complicated
                     // description of types than the simple string from typeof.
-                    "while" | "for" | "fn" | "match" | "enum" | "return"
-                    | "typeof" | "structured" | "continue" | "loop"
-                    | "break" | "struct" => Err(self.error(
+                    "while" | "fn" | "match" | "enum" | "return" | "typeof"
+                    | "structured" | "loop" | "struct" => Err(self.error(
                         LexicalErrorKind::ReservedButNotUsedKeyword {
                             word: String::from(m.as_str()),
                             end: end,
@@ -1088,6 +1096,7 @@ mod tests {
     tok_round_trip!(trt_43_, "if");
     tok_round_trip!(trt_44_, "else");
     tok_round_trip!(trt_45_, "in");
+    tok_round_trip!(trt_46_, "for");
 
     //
     // Specific lexical errors
