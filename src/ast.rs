@@ -141,6 +141,10 @@ pub enum StatementKind {
         collection: Box<Expr>,
         body: Vec<Statement>,
     },
+    While {
+        condition: Box<Expr>,
+        body: Vec<Statement>,
+    },
     Continue,
     Break,
 }

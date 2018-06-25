@@ -841,17 +841,17 @@ fn exec(env: &mut EvalEnv, s: &Statement) -> Result<(), InternalError> {
 
             match v_val.deref() {
                 &Value::Tuple(ref v) | &Value::Vector(ref v) => {
-                    'LOOP: for elem in v.iter() {
+                    'FOR_LOOP: for elem in v.iter() {
                         env.bind(variable.clone(), elem.clone());
                         for s in body.iter() {
                             match exec(env, s) {
                                 Err(err) => match err.kind {
                                     ErrorKind::LoopError {
                                         keyword: LoopErrorKind::Continue,
-                                    } => continue 'LOOP,
+                                    } => continue 'FOR_LOOP,
                                     ErrorKind::LoopError {
                                         keyword: LoopErrorKind::Break,
-                                    } => break 'LOOP,
+                                    } => break 'FOR_LOOP,
                                     _ => return Err(err),
                                 },
                                 Ok(()) => {} // FALLTHROUGH
@@ -865,6 +865,45 @@ fn exec(env: &mut EvalEnv, s: &Statement) -> Result<(), InternalError> {
                     type_error!(v_val, collection.span.clone(), "vec", "tuple")
                 }
             }
+        }
+
+        StatementKind::While {
+            ref condition,
+            ref body,
+        } => {
+            'WHILE_LOOP: loop {
+                let c_val = eval_(env, &condition)?;
+                let c_val = c_val.borrow();
+
+                match c_val.deref() {
+                    &Value::Bool(false) => break 'WHILE_LOOP,
+                    &Value::Bool(true) => {
+                        for s in body.iter() {
+                            match exec(env, s) {
+                                Err(err) => match err.kind {
+                                    ErrorKind::LoopError {
+                                        keyword: LoopErrorKind::Continue,
+                                    } => continue 'WHILE_LOOP,
+                                    ErrorKind::LoopError {
+                                        keyword: LoopErrorKind::Break,
+                                    } => break 'WHILE_LOOP,
+                                    _ => return Err(err),
+                                },
+                                Ok(()) => {} // FALLTHROUGH
+                            }
+                        }
+                    }
+                    _ => {
+                        return type_error!(
+                            c_val,
+                            condition.span.clone(),
+                            "bool"
+                        )
+                    }
+                }
+            }
+
+            Ok(())
         }
 
         StatementKind::Continue => {
@@ -1007,27 +1046,21 @@ fn eval_equals(
     ) -> Result<bool, InternalError> {
         match (lhs, rhs) {
             (&Value::Regex(ref l), &Value::Regex(ref r)) => Ok(*l == *r),
-            (&Value::Regex(_), _) => {
-                type_error!(rhs, r_expr.span.clone(), "regex")
-            }
+            (&Value::Regex(_), _) => Ok(false),
 
             (&Value::Str(ref l), &Value::Str(ref r)) => Ok(*l == *r),
-            (&Value::Str(_), _) => type_error!(rhs, r_expr.span.clone(), "str"),
+            (&Value::Str(_), _) => Ok(false),
 
             (&Value::Int(ref l), &Value::Int(ref r)) => Ok(*l == *r),
-            (&Value::Int(_), _) => type_error!(rhs, r_expr.span.clone(), "int"),
+            (&Value::Int(_), _) => Ok(false),
 
             (&Value::Float(ref l), &Value::Float(ref r)) => {
                 Ok((*l - *r).abs() < FLOAT_EQ_EPSILON)
             }
-            (&Value::Float(_), _) => {
-                type_error!(rhs, r_expr.span.clone(), "float")
-            }
+            (&Value::Float(_), _) => Ok(false),
 
             (&Value::Bool(ref l), &Value::Bool(ref r)) => Ok(*l == *r),
-            (&Value::Bool(_), _) => {
-                type_error!(rhs, r_expr.span.clone(), "bool")
-            }
+            (&Value::Bool(_), _) => Ok(false),
 
             (&Value::Dict(ref l), &Value::Dict(ref r)) => {
                 if l.len() != r.len() {
@@ -1051,9 +1084,7 @@ fn eval_equals(
 
                 Ok(true)
             }
-            (&Value::Dict(_), _) => {
-                type_error!(rhs, r_expr.span.clone(), "dict")
-            }
+            (&Value::Dict(_), _) => Ok(false),
 
             (&Value::Tuple(ref l), &Value::Tuple(ref r)) => {
                 if l.len() != r.len() {
@@ -1071,9 +1102,7 @@ fn eval_equals(
 
                 Ok(true)
             }
-            (&Value::Tuple(_), _) => {
-                type_error!(rhs, r_expr.span.clone(), "tuple")
-            }
+            (&Value::Tuple(_), _) => Ok(false),
 
             (&Value::Vector(ref l), &Value::Vector(ref r)) => {
                 if l.len() != r.len() {
@@ -1091,9 +1120,7 @@ fn eval_equals(
 
                 Ok(true)
             }
-            (&Value::Vector(_), _) => {
-                type_error!(rhs, r_expr.span.clone(), "vec")
-            }
+            (&Value::Vector(_), _) => Ok(false),
         }
     };
 
@@ -1114,18 +1141,16 @@ fn eval_lt(
 
     match (l_val.deref(), r_val.deref()) {
         (&Value::Str(ref l), &Value::Str(ref r)) => Ok(l < r),
-        (&Value::Str(_), _) => type_error!(r_val, r_expr.span.clone(), "str"),
+        (&Value::Str(_), _) => Ok(false),
 
         (&Value::Int(ref l), &Value::Int(ref r)) => Ok(l < r),
-        (&Value::Int(_), _) => type_error!(r_val, r_expr.span.clone(), "int"),
+        (&Value::Int(_), _) => Ok(false),
 
         (&Value::Float(ref l), &Value::Float(ref r)) => Ok(l < r),
-        (&Value::Float(_), _) => {
-            type_error!(r_val, r_expr.span.clone(), "float")
-        }
+        (&Value::Float(_), _) => Ok(false),
 
         (&Value::Bool(ref l), &Value::Bool(ref r)) => Ok(l < r),
-        (&Value::Bool(_), _) => type_error!(r_val, r_expr.span.clone(), "bool"),
+        (&Value::Bool(_), _) => Ok(false),
 
         _ => unreachable!("Bug in remake - lt"),
     }
@@ -1145,18 +1170,16 @@ fn eval_gt(
 
     match (l_val.deref(), r_val.deref()) {
         (&Value::Str(ref l), &Value::Str(ref r)) => Ok(l > r),
-        (&Value::Str(_), _) => type_error!(r_val, r_expr.span.clone(), "str"),
+        (&Value::Str(_), _) => Ok(false),
 
         (&Value::Int(ref l), &Value::Int(ref r)) => Ok(l > r),
-        (&Value::Int(_), _) => type_error!(r_val, r_expr.span.clone(), "int"),
+        (&Value::Int(_), _) => Ok(false),
 
         (&Value::Float(ref l), &Value::Float(ref r)) => Ok(l > r),
-        (&Value::Float(_), _) => {
-            type_error!(r_val, r_expr.span.clone(), "float")
-        }
+        (&Value::Float(_), _) => Ok(false),
 
         (&Value::Bool(ref l), &Value::Bool(ref r)) => Ok(l > r),
-        (&Value::Bool(_), _) => type_error!(r_val, r_expr.span.clone(), "bool"),
+        (&Value::Bool(_), _) => Ok(false),
 
         _ => unreachable!("Bug in remake - gt"),
     }
@@ -1176,18 +1199,16 @@ fn eval_le(
 
     match (l_val.deref(), r_val.deref()) {
         (&Value::Str(ref l), &Value::Str(ref r)) => Ok(l <= r),
-        (&Value::Str(_), _) => type_error!(r_val, r_expr.span.clone(), "str"),
+        (&Value::Str(_), _) => Ok(false),
 
         (&Value::Int(ref l), &Value::Int(ref r)) => Ok(l <= r),
-        (&Value::Int(_), _) => type_error!(r_val, r_expr.span.clone(), "int"),
+        (&Value::Int(_), _) => Ok(false),
 
         (&Value::Float(ref l), &Value::Float(ref r)) => Ok(l <= r),
-        (&Value::Float(_), _) => {
-            type_error!(r_val, r_expr.span.clone(), "float")
-        }
+        (&Value::Float(_), _) => Ok(false),
 
         (&Value::Bool(ref l), &Value::Bool(ref r)) => Ok(l <= r),
-        (&Value::Bool(_), _) => type_error!(r_val, r_expr.span.clone(), "bool"),
+        (&Value::Bool(_), _) => Ok(false),
 
         _ => unreachable!("Bug in remake - le"),
     }
@@ -1207,18 +1228,16 @@ fn eval_ge(
 
     match (l_val.deref(), r_val.deref()) {
         (&Value::Str(ref l), &Value::Str(ref r)) => Ok(l >= r),
-        (&Value::Str(_), _) => type_error!(r_val, r_expr.span.clone(), "str"),
+        (&Value::Str(_), _) => Ok(false),
 
         (&Value::Int(ref l), &Value::Int(ref r)) => Ok(l >= r),
-        (&Value::Int(_), _) => type_error!(r_val, r_expr.span.clone(), "int"),
+        (&Value::Int(_), _) => Ok(false),
 
         (&Value::Float(ref l), &Value::Float(ref r)) => Ok(l >= r),
-        (&Value::Float(_), _) => {
-            type_error!(r_val, r_expr.span.clone(), "float")
-        }
+        (&Value::Float(_), _) => Ok(false),
 
         (&Value::Bool(ref l), &Value::Bool(ref r)) => Ok(l >= r),
-        (&Value::Bool(_), _) => type_error!(r_val, r_expr.span.clone(), "bool"),
+        (&Value::Bool(_), _) => Ok(false),
 
         _ => unreachable!("Bug in remake - ge"),
     }
@@ -1529,12 +1548,12 @@ mod tests {
     eval_to!(prim_cmp_25_, " false == true ", Value::Bool(false));
     eval_to!(prim_cmp_26_, " false != true ", Value::Bool(true));
 
-    eval_fail!(prim_cmp_27_, " false < 1 ", "TypeError");
-    eval_fail!(prim_cmp_28_, " false > 1 ", "TypeError");
-    eval_fail!(prim_cmp_29_, " false <= 1 ", "TypeError");
-    eval_fail!(prim_cmp_30_, " false >= 1 ", "TypeError");
-    eval_fail!(prim_cmp_31_, " false == 1 ", "TypeError");
-    eval_fail!(prim_cmp_32_, " false != 1 ", "TypeError");
+    eval_to!(prim_cmp_27_, " false < 1 ", Value::Bool(false));
+    eval_to!(prim_cmp_28_, " false > 1 ", Value::Bool(false));
+    eval_to!(prim_cmp_29_, " false <= 1 ", Value::Bool(false));
+    eval_to!(prim_cmp_30_, " false >= 1 ", Value::Bool(false));
+    eval_to!(prim_cmp_31_, " false == 1 ", Value::Bool(false));
+    eval_to!(prim_cmp_32_, " false != 1 ", Value::Bool(true));
 
     eval_to!(prim_cmp_33_, " false || true ", Value::Bool(true));
     eval_to!(prim_cmp_34_, " true && false ", Value::Bool(false));
@@ -1546,11 +1565,11 @@ mod tests {
 
     eval_to!(prim_cmp_49_, " !true ", Value::Bool(false));
 
-    eval_fail!(prim_cmp_50_, r#" /re/ == 3 "#, "TypeError");
-    eval_fail!(prim_cmp_51_, r#" "str" == 3 "#, "TypeError");
-    eval_fail!(prim_cmp_52_, r#" {} == 3 "#, "TypeError");
-    eval_fail!(prim_cmp_53_, r#" [] == 3 "#, "TypeError");
-    eval_fail!(prim_cmp_54_, r#" (3,4) == 3 "#, "TypeError");
+    eval_to!(prim_cmp_50_, r#" /re/ == 3 "#, Value::Bool(false));
+    eval_to!(prim_cmp_51_, r#" "str" == 3 "#, Value::Bool(false));
+    eval_to!(prim_cmp_52_, r#" {} == 3 "#, Value::Bool(false));
+    eval_to!(prim_cmp_53_, r#" [] == 3 "#, Value::Bool(false));
+    eval_to!(prim_cmp_54_, r#" (3,4) == 3 "#, Value::Bool(false));
 
     eval_to!(prim_cmp_55_, r#" {1:2} == {1:2} "#, Value::Bool(true));
     eval_to!(
@@ -1564,21 +1583,21 @@ mod tests {
         Value::Bool(true)
     );
 
-    eval_fail!(prim_cmp_58_, r#" "str" < 3 "#, "TypeError");
-    eval_fail!(prim_cmp_59_, r#" 3.1 < 3 "#, "TypeError");
-    eval_fail!(prim_cmp_60_, r#" 3 < 3.1 "#, "TypeError");
+    eval_to!(prim_cmp_58_, r#" "str" < 3 "#, Value::Bool(false));
+    eval_to!(prim_cmp_59_, r#" 3.1 < 3 "#, Value::Bool(false));
+    eval_to!(prim_cmp_60_, r#" 3 < 3.1 "#, Value::Bool(false));
 
-    eval_fail!(prim_cmp_61_, r#" "str" > 3 "#, "TypeError");
-    eval_fail!(prim_cmp_62_, r#" 3.1 > 3 "#, "TypeError");
-    eval_fail!(prim_cmp_63_, r#" 3 > 3.1 "#, "TypeError");
+    eval_to!(prim_cmp_61_, r#" "str" > 3 "#, Value::Bool(false));
+    eval_to!(prim_cmp_62_, r#" 3.1 > 3 "#, Value::Bool(false));
+    eval_to!(prim_cmp_63_, r#" 3 > 3.1 "#, Value::Bool(false));
 
-    eval_fail!(prim_cmp_64_, r#" "str" <= 3 "#, "TypeError");
-    eval_fail!(prim_cmp_65_, r#" 3.1 <= 3 "#, "TypeError");
-    eval_fail!(prim_cmp_66_, r#" 3 <= 3.1 "#, "TypeError");
+    eval_to!(prim_cmp_64_, r#" "str" <= 3 "#, Value::Bool(false));
+    eval_to!(prim_cmp_65_, r#" 3.1 <= 3 "#, Value::Bool(false));
+    eval_to!(prim_cmp_66_, r#" 3 <= 3.1 "#, Value::Bool(false));
 
-    eval_fail!(prim_cmp_67_, r#" "str" >= 3 "#, "TypeError");
-    eval_fail!(prim_cmp_68_, r#" 3.1 >= 3 "#, "TypeError");
-    eval_fail!(prim_cmp_69_, r#" 3 >= 3.1 "#, "TypeError");
+    eval_to!(prim_cmp_67_, r#" "str" >= 3 "#, Value::Bool(false));
+    eval_to!(prim_cmp_68_, r#" 3.1 >= 3 "#, Value::Bool(false));
+    eval_to!(prim_cmp_69_, r#" 3 >= 3.1 "#, Value::Bool(false));
 
     //
     // Arith Ops
@@ -2088,6 +2107,70 @@ mod tests {
     );
 
     //
+    // While Loops
+    //
+
+    eval_to!(
+        while_1_,
+        r#"
+        let cnt = 1;
+        let sum = 0;
+        while (cnt < 4) {
+            sum = sum <+> cnt;
+            cnt = cnt <+> 1;
+        }
+        sum
+        "#,
+        Value::Int(6)
+    );
+
+    eval_to!(
+        while_2_,
+        r#"
+        let cnt = 0;
+        let sum = 0;
+        while (cnt < 3) {
+            cnt = cnt <+> 1;
+            if (cnt == 2) {
+                continue;
+            }
+            sum = sum <+> cnt;
+        }
+        sum
+        "#,
+        Value::Int(4)
+    );
+
+    eval_to!(
+        while_3_,
+        r#"
+        let cnt = 1;
+        let sum = 0;
+        while (cnt < 4) {
+            if (cnt == 2) {
+                break;
+            }
+            sum = sum <+> cnt;
+            cnt = cnt <+> 1;
+        }
+        sum
+        "#,
+        Value::Int(1)
+    );
+
+    eval_to!(
+        while_4_,
+        r#"
+        let v = [1, 2, 3, "term"];
+        let i = -1;
+        while ({ i = i <+> 1; v[i] != "term" }) {}
+        v[i]
+        "#,
+        Value::Str("term".to_string())
+    );
+
+    //
+    //
     // Misc
     //
 
@@ -2107,5 +2190,16 @@ mod tests {
     eval_fail!(cap_1_, r#" cap 3.5 as foo "#, "TypeError");
 
     eval_fail!(bad_index_1_, r#" 3[9] "#, "TypeError");
+
+    eval_to!(
+        vec_cmp_1_,
+        r#"
+    let v = [1, "term"];
+    let i = 1;
+    v[i] == "term"
+    "#,
+        Value::Bool(true)
+    );
+    eval_fail!(vec_cmp_2_, r#" v[i] == "term" "#, "NameError");
 
 }

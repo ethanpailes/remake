@@ -80,6 +80,7 @@ extern {
         "for" => lex::Token::For,
         "break" => lex::Token::Break,
         "continue" => lex::Token::Continue,
+        "while" => lex::Token::While,
     }
 }
 
@@ -107,6 +108,16 @@ Expr0: Box<Expr> = {
 ExprKind0: ExprKind = {
     <e1:Expr0> "." <e2:Expr1> => ExprKind::BinOp(e1, BOp::Concat, e2),
     <e1:Expr0> "|" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Alt, e2),
+
+    <e1:Expr0> "==" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Equals, e2),
+    <e1:Expr0> "!=" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Ne, e2),
+    <e1:Expr0> "<" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Lt, e2),
+    <e1:Expr0> ">" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Gt, e2),
+    <e1:Expr0> "<=" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Le, e2),
+    <e1:Expr0> ">=" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Ge, e2),
+    <e1:Expr0> "&&" <e2:Expr1> => ExprKind::BinOp(e1, BOp::And, e2),
+    <e1:Expr0> "||" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Or, e2),
+    <e1:Expr0> "in" <e2:Expr1> => ExprKind::BinOp(e1, BOp::In, e2),
 
     <e1:Expr0> "[" <e2:Expr0> "]" => ExprKind::Index(e1, e2),
     <e1:Expr0> "[" <e2:Expr0> ":" <e3:Expr0> "]" =>
@@ -176,15 +187,6 @@ Expr4: Box<Expr> = {
         Box::new(Expr::new(e, Span { start: l, end: r }))
 };
 ExprKind4: ExprKind = {
-    <e1:Expr4> "==" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Equals, e2),
-    <e1:Expr4> "!=" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Ne, e2),
-    <e1:Expr4> "<" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Lt, e2),
-    <e1:Expr4> ">" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Gt, e2),
-    <e1:Expr4> "<=" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Le, e2),
-    <e1:Expr4> ">=" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Ge, e2),
-    <e1:Expr4> "&&" <e2:Expr5> => ExprKind::BinOp(e1, BOp::And, e2),
-    <e1:Expr4> "||" <e2:Expr5> => ExprKind::BinOp(e1, BOp::Or, e2),
-    <e1:Expr4> "in" <e2:Expr5> => ExprKind::BinOp(e1, BOp::In, e2),
 
     ExprKind5,
 };
@@ -391,6 +393,17 @@ StatementKind: StatementKind = {
         StatementKind::For {
             variable: var.to_string(),
             collection: collection,
+            body: body,
+        }
+    },
+
+    "while" "(" <condition: Expr0> ")" "{"
+        // we do allow empty while body, cause that can sometimes be
+        // useful for some hackery
+        <body: Statement*>
+    "}" => {
+        StatementKind::While {
+            condition: condition,
             body: body,
         }
     },

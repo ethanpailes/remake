@@ -77,6 +77,8 @@ pub enum Token<'input> {
     For,
     Continue,
     Break,
+    While,
+    Loop,
 }
 
 impl<'input> fmt::Display for Token<'input> {
@@ -146,6 +148,8 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::For => write!(f, "for"),
             &Token::Continue => write!(f, "continue"),
             &Token::Break => write!(f, "break"),
+            &Token::While => write!(f, "while"),
+            &Token::Loop => write!(f, "loop"),
         }
     }
 }
@@ -469,14 +473,16 @@ impl<'input> Lexer<'input> {
                     "for" => Ok((Token::For, end)),
                     "continue" => Ok((Token::Continue, end)),
                     "break" => Ok((Token::Break, end)),
+                    "while" => Ok((Token::While, end)),
+                    "loop" => Ok((Token::Loop, end)),
 
                     // Reserved Keywords
                     //
                     // "structured" is for a "structured typeof <expr>"
                     // expression which returns a more complicated
                     // description of types than the simple string from typeof.
-                    "while" | "fn" | "match" | "enum" | "return" | "typeof"
-                    | "structured" | "loop" | "struct" => Err(self.error(
+                    "fn" | "match" | "enum" | "return" | "typeof"
+                    | "structured" | "struct" => Err(self.error(
                         LexicalErrorKind::ReservedButNotUsedKeyword {
                             word: String::from(m.as_str()),
                             end: end,
@@ -858,8 +864,6 @@ mod tests {
     tokens!(dot_1_, " . ", Token::Dot);
 
     tokens!(equals_1_, "=", Token::Equals);
-
-    lex_error_has!(unknown_op_5_, "  loop ", "Reserved keyword");
 
     //
     // keywords
