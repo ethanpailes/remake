@@ -79,6 +79,8 @@ pub enum Token<'input> {
     Break,
     While,
     Loop,
+    FnKeyword,
+    Return,
 }
 
 impl<'input> fmt::Display for Token<'input> {
@@ -150,6 +152,8 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::Break => write!(f, "break"),
             &Token::While => write!(f, "while"),
             &Token::Loop => write!(f, "loop"),
+            &Token::FnKeyword => write!(f, "fn"),
+            &Token::Return => write!(f, "return"),
         }
     }
 }
@@ -475,19 +479,22 @@ impl<'input> Lexer<'input> {
                     "break" => Ok((Token::Break, end)),
                     "while" => Ok((Token::While, end)),
                     "loop" => Ok((Token::Loop, end)),
+                    "fn" => Ok((Token::FnKeyword, end)),
+                    "return" => Ok((Token::Return, end)),
 
                     // Reserved Keywords
                     //
                     // "structured" is for a "structured typeof <expr>"
                     // expression which returns a more complicated
                     // description of types than the simple string from typeof.
-                    "fn" | "match" | "enum" | "return" | "typeof"
-                    | "structured" | "struct" => Err(self.error(
-                        LexicalErrorKind::ReservedButNotUsedKeyword {
-                            word: String::from(m.as_str()),
-                            end: end,
-                        },
-                    )),
+                    "match" | "enum" | "typeof" | "structured" | "struct" => {
+                        Err(self.error(
+                            LexicalErrorKind::ReservedButNotUsedKeyword {
+                                word: String::from(m.as_str()),
+                                end: end,
+                            },
+                        ))
+                    }
 
                     id => Ok((Token::Id(id), end)),
                 }
@@ -541,13 +548,14 @@ impl<'input> Lexer<'input> {
             )
         } else {
             (
-                Token::IntLit(i64::from_str(&self.input[start..end])
-                    .map_err(|e| {
+                Token::IntLit(i64::from_str(&self.input[start..end]).map_err(
+                    |e| {
                         self.error(LexicalErrorKind::IntParseError(
                             String::from(&self.input[start..end]),
                             e,
                         ))
-                    })?),
+                    },
+                )?),
                 end,
             )
         })
@@ -1101,6 +1109,8 @@ mod tests {
     tok_round_trip!(trt_44_, "else");
     tok_round_trip!(trt_45_, "in");
     tok_round_trip!(trt_46_, "for");
+    tok_round_trip!(trt_47_, "fn");
+    tok_round_trip!(trt_48_, "return");
 
     //
     // Specific lexical errors

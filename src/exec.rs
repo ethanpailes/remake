@@ -8,10 +8,10 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
-use std::fmt;
 
 use regex_syntax;
 use regex_syntax::ast::{GroupKind, RepetitionKind};
@@ -37,6 +37,16 @@ pub enum Value {
     Dict(HashMap<Value, Rc<RefCell<Value>>>),
     Tuple(Vec<Rc<RefCell<Value>>>),
     Vector(Vec<Rc<RefCell<Value>>>),
+    Closure {
+        env: Env,
+        lambda: Rc<ast::Lambda>,
+    },
+
+    /// A user can never get ahold of an 'Undefined' value, but
+    /// we need something to place in the cell of a recursive definition.
+    /// If an 'Undefined' is ever discovered during evaluation, we trigger
+    /// an immediate 'NameError'
+    Undefined,
 }
 
 impl Value {
@@ -50,6 +60,10 @@ impl Value {
             &Value::Dict(_) => "dict",
             &Value::Tuple(_) => "tuple",
             &Value::Vector(_) => "vec",
+            &Value::Closure { env: _, lambda: _ } => "closure",
+            &Value::Undefined => {
+                unreachable!("Bug in remake - undefined is typeless")
+            }
         }
     }
 }
@@ -61,11 +75,20 @@ impl fmt::Display for Value {
             &Value::Float(ref x) => write!(f, "{}", x)?,
             &Value::Str(ref s) => write!(f, "{:?}", s)?,
             &Value::Bool(ref b) => write!(f, "{}", b)?,
+            &Value::Closure { env: _, ref lambda } => {
+                write!(
+                    f,
+                    "<closure with args ({})>",
+                    lambda.args.clone().join(", ")
+                )?;
+            }
+
             // TODO: real formatting
             &Value::Regex(_) => write!(f, "TODO regex")?,
             &Value::Dict(_) => write!(f, "TODO dict")?,
             &Value::Tuple(_) => write!(f, "TODO tuple")?,
             &Value::Vector(_) => write!(f, "TODO vec")?,
+            &Value::Undefined => unreachable!("Bug in remake - undefined disp"),
         }
 
         Ok(())
@@ -115,8 +138,13 @@ impl PartialEq for Value {
 impl Eq for Value {}
 
 pub fn eval(expr: &Expr) -> Result<Value, InternalError> {
-    eval_(&mut EvalEnv::new(), expr)
-        .map(|v| Rc::try_unwrap(v).unwrap().into_inner())
+    let res;
+    {
+        let mut env = EvalEnv::new();
+        res = eval_(&mut env, expr);
+        debug_assert!(env.call_stack.len() == 1);
+    }
+    res.map(|v| Rc::try_unwrap(v).unwrap().into_inner())
 }
 
 macro_rules! type_error {
@@ -144,21 +172,33 @@ macro_rules! key_error {
     ($key:expr, $span:expr) => {
         Err(InternalError::new(
             ErrorKind::KeyError {
-                key: $key.to_string()
+                key: $key.to_string(),
             },
-            $span
-            ))
-    }
+            $span,
+        ))
+    };
 }
 
 macro_rules! loop_error {
     ($keyword:expr, $span:expr) => {
         Err(InternalError::new(
-            ErrorKind::LoopError {
-                keyword: $keyword
-            },
-            $span
-            ))
+            ErrorKind::LoopError { keyword: $keyword },
+            $span,
+        ))
+    };
+}
+
+macro_rules! try_cleanup {
+    ($e:expr, $($cleanup:tt)*) => {
+        match $e {
+            Ok(inner) => inner,
+            Err(err) => {
+                {
+                    $($cleanup)*
+                }
+                return Err(From::from(err));
+            }
+        }
     }
 }
 
@@ -556,9 +596,9 @@ fn eval_(
         ExprKind::Block(ref statements, ref value) => {
             env.push_block_env();
             for s in statements {
-                exec(env, s)?;
+                try_cleanup!(exec(env, s), env.pop_block_env());
             }
-            let res = eval_(env, value)?;
+            let res = try_cleanup!(eval_(env, value), env.pop_block_env());
             env.pop_block_env();
 
             Ok(res)
@@ -574,7 +614,6 @@ fn eval_(
             match c_val.deref() {
                 &Value::Dict(ref d) => {
                     let k_val = eval_(env, key)?;
-                    println!("d={:?}", d);
 
                     // weird borrow games so we can move k_val later
                     {
@@ -702,15 +741,65 @@ fn eval_(
             }
         }
 
-        ExprKind::ExprPoison => panic!("Bug in remake - poison expr"),
+        ExprKind::Lambda {
+            ref expr,
+            ref free_vars,
+        } => {
+            let mut closure_env = Env::new();
+            for v in free_vars.iter() {
+                let e = env.lookup(v).map_err(|e| {
+                    InternalError::new(e, expr.body.span.clone())
+                })?;
+                closure_env.insert(v.clone(), e);
+            }
+
+            ok(Value::Closure {
+                env: closure_env,
+                lambda: expr.clone(),
+            })
+        }
+
+        ExprKind::Apply { ref func, ref args } => {
+            let f_val = eval_(env, func)?;
+            let f_val = f_val.borrow();
+
+            match f_val.deref() {
+                Value::Closure {
+                    env: ref closure_env,
+                    ref lambda,
+                } => {
+                    let mut new_env = closure_env.clone();
+                    let mut iter = args.iter().zip(lambda.args.iter());
+                    for (arg_expr, arg_name) in iter {
+                        let arg_val = eval_(env, &arg_expr)?;
+                        new_env.insert(arg_name.to_string(), arg_val);
+                    }
+
+                    env.push_closure_frame(new_env);
+                    let ret = eval_(env, &lambda.body);
+                    env.pop_stack_frame();
+                    ret
+                }
+                _ => type_error!(f_val, func.span.clone(), "closure"),
+            }
+        }
+
+        ExprKind::ExprPoison => unreachable!("Bug in remake - poison expr"),
     }
 }
 
 fn exec(env: &mut EvalEnv, s: &Statement) -> Result<(), InternalError> {
     match s.kind {
         StatementKind::LetBinding(ref id, ref e) => {
-            let v = eval_(env, &*e)?;
-            env.bind(id.clone(), v);
+            env.bind(id.clone(), Rc::new(RefCell::new(Value::Undefined)));
+
+            let v = match Rc::try_unwrap(eval_(env, &e)?) {
+                Ok(inner) => inner.into_inner(),
+                Err(rc) => Rc::try_unwrap(Rc::clone(&rc)).unwrap().into_inner(),
+            };
+
+            env.set(id.clone(), v)
+                .expect("Bug in remake - set just bound");
             Ok(())
         }
 
@@ -718,9 +807,15 @@ fn exec(env: &mut EvalEnv, s: &Statement) -> Result<(), InternalError> {
             match lvalue.kind {
                 ExprKind::Var(ref var) => {
                     let span = e.span.clone();
-                    let v = eval_(env, &e)?;
-                    env.set(var.clone(), v)
-                        .map_err(|e| InternalError::new(e, span))
+                    let v = match Rc::try_unwrap(eval_(env, &e)?) {
+                        Ok(inner) => inner.into_inner(),
+                        Err(rc) => {
+                            Rc::try_unwrap(Rc::clone(&rc)).unwrap().into_inner()
+                        }
+                    };
+                    let res = env.set(var.clone(), v)
+                        .map_err(|e| InternalError::new(e, span));
+                    res
                 }
                 ExprKind::Index(ref collection, ref key) => {
                     let c_val = eval_(env, &collection)?;
@@ -911,6 +1006,16 @@ fn exec(env: &mut EvalEnv, s: &Statement) -> Result<(), InternalError> {
         }
         StatementKind::Break => {
             loop_error!(LoopErrorKind::Break, s.span.clone())
+        }
+
+        StatementKind::Block(ref statements) => {
+            env.push_block_env();
+            for s in statements.iter() {
+                try_cleanup!(exec(env, s), env.pop_block_env());
+            }
+            env.pop_block_env();
+
+            Ok(())
         }
     }
 }
@@ -1121,6 +1226,12 @@ fn eval_equals(
                 Ok(true)
             }
             (&Value::Vector(_), _) => Ok(false),
+
+            // closures are never equal to anything
+            (&Value::Closure { env: _, lambda: _ }, _) => Ok(false),
+            (&Value::Undefined, _) => {
+                unreachable!("Bug in remake - eq undefined")
+            }
         }
     };
 
@@ -1330,12 +1441,63 @@ fn ok(val: Value) -> Result<Rc<RefCell<Value>>, InternalError> {
 // The evaluation environment
 //
 
+#[derive(Debug)]
 struct EvalEnv {
-    block_envs: Vec<HashMap<String, Rc<RefCell<Value>>>>,
+    call_stack: Vec<CallFrame>,
 }
 impl EvalEnv {
     fn new() -> Self {
-        EvalEnv { block_envs: vec![] }
+        EvalEnv {
+            call_stack: vec![CallFrame::new()],
+        }
+    }
+
+    fn push_closure_frame(&mut self, env: Env) {
+        self.call_stack.push(CallFrame::from_env(env));
+    }
+    fn pop_stack_frame(&mut self) {
+        self.call_stack.pop();
+    }
+
+    fn push_block_env(&mut self) {
+        self.top_frame_mut().push_block_env()
+    }
+    fn pop_block_env(&mut self) {
+        self.top_frame_mut().pop_block_env()
+    }
+    fn bind(&mut self, var: String, v: Rc<RefCell<Value>>) {
+        self.top_frame_mut().bind(var, v)
+    }
+    fn lookup(&self, var: &String) -> Result<Rc<RefCell<Value>>, ErrorKind> {
+        self.top_frame().lookup(var)
+    }
+    fn set(&mut self, var: String, v: Value) -> Result<(), ErrorKind> {
+        self.top_frame_mut().set(var, v)
+    }
+
+    fn top_frame_mut(&mut self) -> &mut CallFrame {
+        let len = self.call_stack.len();
+        &mut self.call_stack[len - 1]
+    }
+    fn top_frame(&self) -> &CallFrame {
+        let len = self.call_stack.len();
+        &self.call_stack[len - 1]
+    }
+}
+
+#[derive(Debug)]
+struct CallFrame {
+    block_envs: Vec<Env>,
+}
+type Env = HashMap<String, Rc<RefCell<Value>>>;
+impl CallFrame {
+    fn new() -> Self {
+        CallFrame { block_envs: vec![] }
+    }
+    fn from_env(env: Env) -> Self {
+        CallFrame {
+            block_envs: vec![env],
+        }
     }
 
     fn push_block_env(&mut self) {
@@ -1355,21 +1517,19 @@ impl EvalEnv {
         for env in self.block_envs.iter().rev() {
             match env.get(var) {
                 None => {}
-                Some(val) => return Ok(val.clone()),
+                Some(val) => return Ok(Rc::clone(val)),
             }
         }
 
         Err(ErrorKind::NameError { name: var.clone() })
     }
 
-    fn set(
-        &mut self,
-        var: String,
-        v: Rc<RefCell<Value>>,
-    ) -> Result<(), ErrorKind> {
+    fn set(&mut self, var: String, v: Value) -> Result<(), ErrorKind> {
         for env in self.block_envs.iter_mut().rev() {
             if env.contains_key(&var) {
-                env.insert(var, v);
+                env.entry(var).and_modify(|location| {
+                    location.replace(v);
+                });
                 return Ok(());
             }
         }
@@ -2042,6 +2202,21 @@ mod tests {
         "TypeError"
     );
 
+    /* TODO
+    eval_to!(
+        if_11_,
+        r#"
+        if (true) {
+            let y = 1;
+            y
+        } else {
+            17
+        }
+        "#,
+        Value::Int(1)
+    );
+    */
+
     //
     // For loops
     //
@@ -2239,6 +2414,100 @@ mod tests {
     );
 
     //
+    // Statement blocks
+    //
+
+    /* TODO
+    eval_to!(
+        stmt_block_1_,
+        r#"
+        let x = 1;
+        {
+            x = 2;
+            let y = 5;
+        }
+        x
+        "#,
+        Value::Int(2)
+    );
+
+    eval_fail!(
+        stmt_block_2_,
+        r#"
+        {
+            let y = 5;
+        }
+        y
+        "#,
+        "NameError"
+    );
+    */
+
+    //
+    // Functions
+    //
+
+    eval_to!(
+        fn_1_,
+        r#"
+        fn f(x) { x <+> 1 }
+        f(0)
+        "#,
+        Value::Int(1)
+    );
+
+    eval_to!(
+        fn_2_,
+        r#"
+        (fn(x) { x <+> 1 })(0)
+        "#,
+        Value::Int(1)
+    );
+
+    eval_to!(
+        fn_3_,
+        r#"
+        fn f(x) { x <+> 1 }
+        fn g(y) { f(y) <+> 1 }
+        g(0)
+        "#,
+        Value::Int(2)
+    );
+
+    eval_to!(
+        fn_4_,
+        r#"
+        let x = 0;
+        fn f() {
+            x = x <+> 1;
+            x
+        }
+        f();
+        f();
+        f();
+        x
+        "#,
+        Value::Int(3)
+    );
+
+    eval_fail!(fn_5_, "fn() { x }", "NameError");
+    eval_fail!(fn_6_, "15(\"hi\")", "TypeError");
+
+    eval_to!(
+        fn_recur_1_,
+        r#"
+    fn fib(x) {
+        if ( (x == 1) || (x == 2) ) {
+            1
+        } else {
+            fib(x - 1) <+> fib(x - 2)
+        }
+    }
+    fib(5)
+    "#,
+        Value::Int(5)
+    );
+
     //
     // Misc
     //
@@ -2270,5 +2539,17 @@ mod tests {
         Value::Bool(true)
     );
     eval_fail!(vec_cmp_2_, r#" v[i] == "term" "#, "NameError");
+
+    eval_to!(
+        break_cleanup_1_,
+        r#"
+    let x = 1;
+    loop {
+        let _ = { let x = 2; break; x };
+    }
+    x
+    "#,
+        Value::Int(1)
+    );
 
 }

@@ -13,6 +13,7 @@ use ast::{Expr, ExprKind, Span, BOp, UOp, StatementKind, Statement};
 use error;
 use error::{InternalError, ErrorKind};
 use lex;
+use util;
 
 grammar<'input>;
 
@@ -82,6 +83,8 @@ extern {
         "continue" => lex::Token::Continue,
         "while" => lex::Token::While,
         "loop" => lex::Token::Loop,
+        "fn" => lex::Token::FnKeyword,
+        "return" => lex::Token::Return,
     }
 }
 
@@ -107,8 +110,10 @@ Expr0: Box<Expr> = {
         Box::new(Expr::new(b.kind, Span { start: l, end: r })),
 };
 ExprKind0: ExprKind = {
-    <e1:Expr0> "." <e2:Expr1> => ExprKind::BinOp(e1, BOp::Concat, e2),
-    <e1:Expr0> "|" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Alt, e2),
+    // TODO(ethan): make these higher precidence than the comparison
+    // operators
+    <e1:Expr0> "&&" <e2:Expr1> => ExprKind::BinOp(e1, BOp::And, e2),
+    <e1:Expr0> "||" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Or, e2),
 
     <e1:Expr0> "==" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Equals, e2),
     <e1:Expr0> "!=" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Ne, e2),
@@ -116,9 +121,10 @@ ExprKind0: ExprKind = {
     <e1:Expr0> ">" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Gt, e2),
     <e1:Expr0> "<=" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Le, e2),
     <e1:Expr0> ">=" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Ge, e2),
-    <e1:Expr0> "&&" <e2:Expr1> => ExprKind::BinOp(e1, BOp::And, e2),
-    <e1:Expr0> "||" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Or, e2),
     <e1:Expr0> "in" <e2:Expr1> => ExprKind::BinOp(e1, BOp::In, e2),
+
+    <e1:Expr0> "." <e2:Expr1> => ExprKind::BinOp(e1, BOp::Concat, e2),
+    <e1:Expr0> "|" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Alt, e2),
 
     <e1:Expr0> "[" <e2:Expr0> "]" => ExprKind::Index(e1, e2),
     <e1:Expr0> "[" <e2:Expr0> ":" <e3:Expr0> "]" =>
@@ -157,8 +163,6 @@ Expr1: Box<Expr> = {
         Box::new(Expr::new(e, Span { start: l, end: r }))
 };
 ExprKind1: ExprKind = {
-    "cap" <e:Expr2> "as" <name:"identifier"> =>
-        ExprKind::Capture(e, Some(name.to_string())),
 
     ExprKind2
 };
@@ -168,7 +172,8 @@ Expr2: Box<Expr> = {
         Box::new(Expr::new(e, Span { start: l, end: r }))
 };
 ExprKind2: ExprKind = {
-    "cap" <e:Expr2> => ExprKind::Capture(e, None),
+    "cap" <e:Expr3> "as" <name:"identifier"> =>
+        ExprKind::Capture(e, Some(name.to_string())),
 
     ExprKind3
 };
@@ -178,7 +183,7 @@ Expr3: Box<Expr> = {
         Box::new(Expr::new(e, Span { start: l, end: r }))
 };
 ExprKind3: ExprKind = {
-    // TODO(ethan): remove if it isn't useful
+    "cap" <e:Expr3> => ExprKind::Capture(e, None),
 
     ExprKind4,
 };
@@ -258,7 +263,6 @@ ExprKind6: ExprKind = {
     "(" <entries: Comma1<Expr0>> ")" => ExprKind::TupleLiteral(entries),
     "[" <entries: Comma<Expr0>> "]" => ExprKind::VectorLiteral(entries),
 
-
     "if" "(" <cond: Expr0> ")" "{"
         <true_branch: Expr0>
     <middle_branches: ("}" "else" "if" "(" Expr0 ")" "{" Expr0)*>
@@ -286,6 +290,16 @@ ExprKind6: ExprKind = {
             condition: cond,
             true_branch: true_branch,
             false_branch: false_branch,
+        }
+    },
+
+    "fn" "(" <args: Comma<"identifier">> ")" "{" <body: BlockBody> "}" =>
+        util::construct_lambda(args, body),
+
+    <func: Expr6> "(" <args: Comma<Expr0>> ")" => {
+        ExprKind::Apply {
+            func: func,
+            args: args,
         }
     },
 
@@ -399,7 +413,7 @@ StatementKind: StatementKind = {
     },
 
     "while" "(" <condition: Expr0> ")" "{"
-        // we do allow empty while body, cause that can sometimes be
+        // we do allow an empty while body, cause that can sometimes be
         // useful for some hackery
         <body: Statement*>
     "}" => {
@@ -424,11 +438,24 @@ StatementKind: StatementKind = {
     },
 
     "let" <id:"identifier"> "=" <e:Expr0> ";" => {
-        StatementKind::LetBinding(String::from(id), e)
+        StatementKind::LetBinding(id.to_string(), e)
     },
     <lv:LValue> "=" <e:Expr0> ";" => {
         StatementKind::Assign(lv, e)
     },
+
+    <l: @L> "fn" <name: "identifier"> "("
+        <args: Comma<"identifier">>
+    ")" "{" <body: BlockBody> "}" <r: @R> => {
+        StatementKind::LetBinding(
+            name.to_string(),
+            Box::new(Expr::new(
+                util::construct_lambda(args, body),
+                Span { start: l, end: r },
+            ))
+        )
+    },
+
     <e:Expr0> ";" => StatementKind::Expr(e),
     "break" ";" => StatementKind::Break,
     "continue" ";" => StatementKind::Continue,

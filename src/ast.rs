@@ -6,6 +6,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use std::rc::Rc;
+
 use regex_syntax;
 
 use error::{ErrorKind, InternalError};
@@ -67,11 +69,27 @@ pub enum ExprKind {
         true_branch: Box<Expr>,
         false_branch: Box<Expr>,
     },
+    Lambda {
+        expr: Rc<Lambda>,
+        // We pre-compute the free variables so that we don't have to
+        // do it every time we stamp out a new closure.
+        free_vars: Vec<String>,
+    },
+    Apply {
+        func: Box<Expr>,
+        args: Vec<Box<Expr>>,
+    },
 
     /// A poison expression is never valid, but it lets us avoid copying
-    /// the source string and still please the borrow checker.
+    /// the remake source string and still please the borrow checker.
     #[doc(hidden)]
     ExprPoison,
+}
+
+#[derive(Debug, Clone)]
+pub struct Lambda {
+    pub args: Vec<String>,
+    pub body: Box<Expr>,
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +140,10 @@ impl Statement {
     }
 }
 
+// TODO(ethan): represent blocks as single expressions or statements
+//              to reduce the surface area where block scope handling
+//              needs to be done correctly in the interpreter (spoiler:
+//              it's not done right as things stand).
 #[derive(Debug, Clone)]
 pub enum StatementKind {
     LetBinding(String, Box<Expr>),
@@ -147,10 +169,268 @@ pub enum StatementKind {
     },
     Continue,
     Break,
+    #[allow(dead_code)]
+    Block(Vec<Statement>),
 }
 
 #[derive(Debug, Clone)]
 pub struct Span {
     pub start: usize,
     pub end: usize,
+}
+
+//
+// Visitor
+//
+// The design is mostly just stolen from the regex crate's Hir
+// visitor.
+//
+
+pub fn visit_expr<'expr, V: Visitor<'expr>>(
+    mut visitor: V,
+    expr: &'expr Expr,
+) -> Result<V::Output, V::Err> {
+    visitor.start();
+    let mut heap_visitor = HeapVisitor { stack: vec![] };
+    heap_visitor.push_expr(expr);
+    visitor.visit_expr_pre(expr)?;
+
+    heap_visitor.run(visitor)
+}
+
+#[allow(dead_code)]
+pub fn visit_stmt<'stmt, V: Visitor<'stmt>>(
+    mut visitor: V,
+    stmt: &'stmt Statement,
+) -> Result<V::Output, V::Err> {
+    visitor.start();
+    let mut heap_visitor = HeapVisitor { stack: vec![] };
+    heap_visitor.push_stmt(stmt);
+    visitor.visit_stmt_pre(stmt)?;
+
+    heap_visitor.run(visitor)
+}
+
+/// A trait to encode traversals of the remake AST
+pub trait Visitor<'expr> {
+    /// The result of the traversal.
+    type Output;
+    /// An error which might happen during traversal. Traversal
+    /// stops as soon as any error is returned.
+    type Err;
+
+    /// Finalize the state of the visitor object to get the output
+    fn finish(self) -> Result<Self::Output, Self::Err>;
+
+    /// A hook called before beginning traversal of the AST
+    fn start(&mut self) {}
+
+    /// Called before visiting expressions
+    fn visit_expr_pre(&mut self, _expr: &'expr Expr) -> Result<(), Self::Err> {
+        Ok(())
+    }
+    /// Called after visiting expressions
+    fn visit_expr_post(&mut self, _expr: &'expr Expr) -> Result<(), Self::Err> {
+        Ok(())
+    }
+
+    /// Called before visiting statements
+    fn visit_stmt_pre(
+        &mut self,
+        _expr: &'expr Statement,
+    ) -> Result<(), Self::Err> {
+        Ok(())
+    }
+    /// Called after visiting statements
+    fn visit_stmt_post(
+        &mut self,
+        _expr: &'expr Statement,
+    ) -> Result<(), Self::Err> {
+        Ok(())
+    }
+}
+
+struct HeapVisitor<'expr> {
+    stack: Vec<Frame<'expr>>,
+}
+enum Frame<'expr> {
+    PostExpr(&'expr Expr),
+    PreExpr(&'expr Expr),
+    PostStmt(&'expr Statement),
+    PreStmt(&'expr Statement),
+}
+
+impl<'expr> HeapVisitor<'expr> {
+    fn run<V: Visitor<'expr>>(
+        &mut self,
+        mut visitor: V,
+    ) -> Result<V::Output, V::Err> {
+        loop {
+            match self.stack.pop() {
+                None => return visitor.finish(),
+                Some(Frame::PostExpr(e)) => visitor.visit_expr_post(e)?,
+                Some(Frame::PreExpr(e)) => {
+                    self.push_expr(e);
+                    visitor.visit_expr_pre(e)?;
+                }
+                Some(Frame::PostStmt(s)) => visitor.visit_stmt_post(s)?,
+                Some(Frame::PreStmt(s)) => {
+                    self.push_stmt(s);
+                    visitor.visit_stmt_pre(s)?;
+                }
+            }
+        }
+    }
+
+    /// Push a Post node for the given expression, then a Pre node
+    /// for all of its children in reverse order.
+    fn push_expr(&mut self, expr: &'expr Expr) {
+        self.stack.push(Frame::PostExpr(expr));
+        match &expr.kind {
+            &ExprKind::BinOp(ref l, _, ref r) => {
+                self.stack.push(Frame::PreExpr(&r));
+                self.stack.push(Frame::PreExpr(&l));
+            }
+            &ExprKind::UnaryOp(_, ref e) => {
+                self.stack.push(Frame::PreExpr(&e));
+            }
+            &ExprKind::Capture(ref e, _) => {
+                self.stack.push(Frame::PreExpr(&e));
+            }
+            &ExprKind::Block(ref ss, ref e) => {
+                self.stack.push(Frame::PreExpr(&e));
+                for s in ss.iter().rev() {
+                    self.stack.push(Frame::PreStmt(&s));
+                }
+            }
+            &ExprKind::Index(ref c, ref i) => {
+                self.stack.push(Frame::PreExpr(&i));
+                self.stack.push(Frame::PreExpr(&c));
+            }
+            &ExprKind::IndexSlice {
+                ref collection,
+                ref start,
+                ref end,
+            } => {
+                match end {
+                    &Some(ref e) => self.stack.push(Frame::PreExpr(&e)),
+                    &None => {}
+                }
+                match start {
+                    &Some(ref s) => self.stack.push(Frame::PreExpr(&s)),
+                    &None => {}
+                }
+                self.stack.push(Frame::PreExpr(&collection));
+            }
+
+            &ExprKind::If {
+                ref condition,
+                ref true_branch,
+                ref false_branch,
+            } => {
+                self.stack.push(Frame::PreExpr(&false_branch));
+                self.stack.push(Frame::PreExpr(&true_branch));
+                self.stack.push(Frame::PreExpr(&condition));
+            }
+
+            &ExprKind::Lambda {
+                ref expr,
+                free_vars: _,
+            } => {
+                self.stack.push(Frame::PreExpr(&expr.body));
+            }
+
+            &ExprKind::DictLiteral(ref pairs) => {
+                for &(ref k, ref v) in pairs.iter().rev() {
+                    self.stack.push(Frame::PreExpr(&v));
+                    self.stack.push(Frame::PreExpr(&k));
+                }
+            }
+
+            &ExprKind::Apply { ref func, ref args } => {
+                for ref a in args.iter().rev() {
+                    self.stack.push(Frame::PreExpr(&a));
+                }
+                self.stack.push(Frame::PreExpr(&func));
+            }
+
+            &ExprKind::VectorLiteral(ref es)
+            | &ExprKind::TupleLiteral(ref es) => {
+                for e in es.iter().rev() {
+                    self.stack.push(Frame::PreExpr(&e));
+                }
+            }
+
+            &ExprKind::Var(_)
+            | &ExprKind::RegexLiteral(_)
+            | &ExprKind::IntLiteral(_)
+            | &ExprKind::FloatLiteral(_)
+            | &ExprKind::StringLiteral(_)
+            | &ExprKind::BoolLiteral(_)
+            | &ExprKind::ExprPoison => {}
+        }
+    }
+
+    fn push_stmt(&mut self, stmt: &'expr Statement) {
+        self.stack.push(Frame::PostStmt(stmt));
+        match &stmt.kind {
+            &StatementKind::LetBinding(_, ref e) => {
+                self.stack.push(Frame::PreExpr(&e));
+            }
+            &StatementKind::Assign(ref l, ref r) => {
+                self.stack.push(Frame::PreExpr(&r));
+                self.stack.push(Frame::PreExpr(&l));
+            }
+            &StatementKind::IfTrue {
+                ref condition,
+                ref true_branch,
+            } => {
+                for s in true_branch.iter().rev() {
+                    self.stack.push(Frame::PreStmt(&s));
+                }
+                self.stack.push(Frame::PreExpr(&condition));
+            }
+            &StatementKind::IfElse {
+                ref condition,
+                ref true_branch,
+                ref false_branch,
+            } => {
+                for s in false_branch.iter().rev() {
+                    self.stack.push(Frame::PreStmt(&s));
+                }
+                for s in true_branch.iter().rev() {
+                    self.stack.push(Frame::PreStmt(&s));
+                }
+                self.stack.push(Frame::PreExpr(&condition));
+            }
+            &StatementKind::Expr(ref e) => {
+                self.stack.push(Frame::PreExpr(&e));
+            }
+            &StatementKind::For {
+                variable: _,
+                ref collection,
+                ref body,
+            } => {
+                for s in body.iter().rev() {
+                    self.stack.push(Frame::PreStmt(&s));
+                }
+                self.stack.push(Frame::PreExpr(&collection));
+            }
+            &StatementKind::While {
+                ref condition,
+                ref body,
+            } => {
+                for s in body.iter().rev() {
+                    self.stack.push(Frame::PreStmt(&s));
+                }
+                self.stack.push(Frame::PreExpr(&condition));
+            }
+            &StatementKind::Block(ref body) => {
+                for s in body.iter().rev() {
+                    self.stack.push(Frame::PreStmt(&s));
+                }
+            }
+            &StatementKind::Continue | &StatementKind::Break => {}
+        }
+    }
 }
