@@ -17,7 +17,7 @@ use regex_syntax;
 use regex_syntax::ast::{GroupKind, RepetitionKind};
 
 use ast;
-use ast::{Expr, ExprKind, Statement, StatementKind};
+use ast::{Expr, ExprKind, Span, Statement, StatementKind};
 use error::{ErrorKind, InternalError, LoopErrorKind};
 use re_operators;
 use re_operators::noncapturing_group;
@@ -41,6 +41,7 @@ pub enum Value {
         env: Env,
         lambda: Rc<ast::Lambda>,
     },
+    BuiltinFunction(BuiltIn),
 
     /// A user can never get ahold of an 'Undefined' value, but
     /// we need something to place in the cell of a recursive definition.
@@ -61,8 +62,14 @@ impl Value {
             &Value::Tuple(_) => "tuple",
             &Value::Vector(_) => "vec",
             &Value::Closure { env: _, lambda: _ } => "closure",
+
+            // User's should not have to special case based on the
+            // fact that a function is defined as a builtin. If they
+            // really care that much they can check the result of show()
+            &Value::BuiltinFunction(_) => "closure",
+
             &Value::Undefined => {
-                unreachable!("Bug in remake - undefined is typeless")
+                unreachable!("Bug in remake - undefined type_of")
             }
         }
     }
@@ -82,12 +89,44 @@ impl fmt::Display for Value {
                     lambda.args.clone().join(", ")
                 )?;
             }
+            &Value::BuiltinFunction(ref b) => {
+                write!(f, "{:?}", b)?;
+            }
 
-            // TODO: real formatting
-            &Value::Regex(_) => write!(f, "TODO regex")?,
-            &Value::Dict(_) => write!(f, "TODO dict")?,
-            &Value::Tuple(_) => write!(f, "TODO tuple")?,
-            &Value::Vector(_) => write!(f, "TODO vec")?,
+            &Value::Regex(_) => write!(f, "TODO show regex")?,
+            &Value::Dict(ref d) => {
+                write!(f, "{{ ")?;
+                for (i, (k, v)) in d.iter().enumerate() {
+                    let v = v.borrow();
+                    write!(f, "{}: {}", k, v.deref())?;
+                    if i < d.len() - 1 {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, " }}")?;
+            }
+            &Value::Tuple(ref tup) => {
+                write!(f, "(")?;
+                for (i, elem) in tup.iter().enumerate() {
+                    let elem = elem.borrow();
+                    write!(f, "{}", elem.deref())?;
+                    if i < tup.len() - 1 {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, ")")?;
+            }
+            &Value::Vector(ref vec) => {
+                write!(f, "[")?;
+                for (i, elem) in vec.iter().enumerate() {
+                    let elem = elem.borrow();
+                    write!(f, "{}", elem.deref())?;
+                    if i < vec.len() - 1 {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, "]")?;
+            }
             &Value::Undefined => unreachable!("Bug in remake - undefined disp"),
         }
 
@@ -183,6 +222,18 @@ macro_rules! loop_error {
     ($keyword:expr, $span:expr) => {
         Err(InternalError::new(
             ErrorKind::LoopError { keyword: $keyword },
+            $span,
+        ))
+    };
+}
+
+macro_rules! arity_error {
+    ($expected:expr, $actual:expr, $span:expr) => {
+        Err(InternalError::new(
+            ErrorKind::ArityError {
+                expected: $expected,
+                actual: $actual,
+            },
             $span,
         ))
     };
@@ -515,26 +566,37 @@ fn eval_(
 
             &ast::BOp::In => {
                 let l_val = eval_(env, l_expr)?;
-                let l_val = l_val.borrow();
-                type_guard!(
-                    l_val,
-                    l_expr.span.clone(),
-                    "str",
-                    "int",
-                    "float",
-                    "bool"
-                );
-
                 let r_val = eval_(env, r_expr)?;
+
+                let l_val = l_val.borrow();
                 let r_val = r_val.borrow();
 
                 match r_val.deref() {
                     &Value::Dict(ref d) => {
+                        type_guard!(
+                            l_val,
+                            l_expr.span.clone(),
+                            "str",
+                            "int",
+                            "float",
+                            "bool"
+                        );
+
                         return ok(Value::Bool(d.contains_key(l_val.deref())));
+                    }
+                    &Value::Vector(ref v) | &Value::Tuple(ref v) => {
+                        for elem in v.iter() {
+                            let e_val = elem.borrow();
+                            if eval_equals_value(l_val.deref(), e_val.deref()) {
+                                return ok(Value::Bool(true));
+                            }
+                        }
+
+                        return ok(Value::Bool(false));
                     }
                     _ => {} // FALLTHROUGH
                 }
-                type_error!(r_val, r_expr.span.clone(), "dict")
+                type_error!(r_val, r_expr.span.clone(), "dict", "vec", "tuple")
             }
         },
 
@@ -609,12 +671,21 @@ fn eval_(
 
         ExprKind::Index(ref collection, ref key) => {
             let c_val = eval_(env, collection)?;
-            let c_val = c_val.borrow();
+            {
+                let c_val = c_val.borrow();
+                type_guard!(
+                    c_val,
+                    collection.span.clone(),
+                    "dict",
+                    "tuple",
+                    "vec"
+                );
+            }
+            let k_val = eval_(env, key)?;
 
+            let c_val = c_val.borrow();
             match c_val.deref() {
                 &Value::Dict(ref d) => {
-                    let k_val = eval_(env, key)?;
-
                     // weird borrow games so we can move k_val later
                     {
                         let k_valb = k_val.borrow();
@@ -628,7 +699,7 @@ fn eval_(
                         );
 
                         match d.get(k_valb.deref()) {
-                            Some(v) => return Ok(v.clone()),
+                            Some(v) => return Ok(Rc::clone(v)),
                             None => {} // FALLTHROUGH
                         }
                     }
@@ -641,41 +712,8 @@ fn eval_(
                         k_val,
                     ]))
                 }
-                &Value::Tuple(ref t) => {
-                    let k_val = eval_(env, key)?;
-
-                    // weird borrow games so we can move k_val later
-                    {
-                        let k_valb = k_val.borrow();
-
-                        match k_valb.deref() {
-                            &Value::Int(ref i) => {
-                                match t.get(*i as usize) {
-                                    Some(v) => return Ok(v.clone()),
-                                    None => {} // FALLTHROUGH
-                                }
-                            }
-                            _ => {
-                                return type_error!(
-                                    k_valb,
-                                    key.span.clone(),
-                                    "int"
-                                )
-                            }
-                        }
-                    }
-
-                    ok(Value::Tuple(vec![
-                        Rc::new(RefCell::new(Value::Str("err".to_string()))),
-                        Rc::new(RefCell::new(Value::Str(
-                            "KeyError".to_string(),
-                        ))),
-                        k_val,
-                    ]))
-                }
+                &Value::Tuple(ref v) |
                 &Value::Vector(ref v) => {
-                    let k_val = eval_(env, key)?;
-
                     // weird borrow games so we can move k_val later
                     {
                         let k_valb = k_val.borrow();
@@ -683,7 +721,7 @@ fn eval_(
                         match k_valb.deref() {
                             &Value::Int(ref i) => {
                                 match v.get(*i as usize) {
-                                    Some(v) => return Ok(v.clone()),
+                                    Some(v) => return Ok(Rc::clone(v)),
                                     None => {} // FALLTHROUGH
                                 }
                             }
@@ -705,7 +743,8 @@ fn eval_(
                         k_val,
                     ]))
                 }
-                _ => type_error!(
+                _ =>
+                type_error!(
                     c_val,
                     collection.span.clone(),
                     "dict",
@@ -768,6 +807,14 @@ fn eval_(
                     env: ref closure_env,
                     ref lambda,
                 } => {
+                    if lambda.args.len() != args.len() {
+                        return arity_error!(
+                            lambda.args.len(),
+                            args.len(),
+                            expr.span.clone()
+                        );
+                    }
+
                     let mut new_env = closure_env.clone();
                     let mut iter = args.iter().zip(lambda.args.iter());
                     for (arg_expr, arg_name) in iter {
@@ -779,6 +826,14 @@ fn eval_(
                     let ret = eval_(env, &lambda.body);
                     env.pop_stack_frame();
                     ret
+                }
+                Value::BuiltinFunction(ref builtin) => {
+                    let arg_spans =
+                        args.iter().map(|a| a.span.clone()).collect::<Vec<_>>();
+                    let args = args.iter()
+                        .map(|a| eval_(env, a))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    (builtin.func)(&args, &expr.span, &arg_spans)
                 }
                 _ => type_error!(f_val, func.span.clone(), "closure"),
             }
@@ -1144,98 +1199,75 @@ fn eval_equals(
     let r_val = eval_(env, r_expr)?;
     let r_val = r_val.borrow();
 
-    fn eq(
-        lhs: &Value,
-        rhs: &Value,
-        r_expr: &Expr,
-    ) -> Result<bool, InternalError> {
-        match (lhs, rhs) {
-            (&Value::Regex(ref l), &Value::Regex(ref r)) => Ok(*l == *r),
-            (&Value::Regex(_), _) => Ok(false),
+    Ok(eval_equals_value(l_val.deref(), r_val.deref()))
+}
 
-            (&Value::Str(ref l), &Value::Str(ref r)) => Ok(*l == *r),
-            (&Value::Str(_), _) => Ok(false),
+fn eval_equals_value(lhs: &Value, rhs: &Value) -> bool {
+    match (lhs, rhs) {
+        (&Value::Regex(ref l), &Value::Regex(ref r)) => *l == *r,
+        (&Value::Regex(_), _) => false,
 
-            (&Value::Int(ref l), &Value::Int(ref r)) => Ok(*l == *r),
-            (&Value::Int(_), _) => Ok(false),
+        (&Value::Str(ref l), &Value::Str(ref r)) => *l == *r,
+        (&Value::Str(_), _) => false,
 
-            (&Value::Float(ref l), &Value::Float(ref r)) => {
-                Ok((*l - *r).abs() < FLOAT_EQ_EPSILON)
+        (&Value::Int(ref l), &Value::Int(ref r)) => *l == *r,
+        (&Value::Int(_), _) => false,
+
+        (&Value::Float(ref l), &Value::Float(ref r)) => {
+            (*l - *r).abs() < FLOAT_EQ_EPSILON
+        }
+        (&Value::Float(_), _) => false,
+
+        (&Value::Bool(ref l), &Value::Bool(ref r)) => *l == *r,
+        (&Value::Bool(_), _) => false,
+
+        (&Value::Dict(ref l), &Value::Dict(ref r)) => {
+            if l.len() != r.len() {
+                return false;
             }
-            (&Value::Float(_), _) => Ok(false),
 
-            (&Value::Bool(ref l), &Value::Bool(ref r)) => Ok(*l == *r),
-            (&Value::Bool(_), _) => Ok(false),
-
-            (&Value::Dict(ref l), &Value::Dict(ref r)) => {
-                if l.len() != r.len() {
-                    return Ok(false);
-                }
-
-                for (k, v1) in l.iter() {
-                    match r.get(k) {
-                        None => return Ok(false),
-                        Some(v2) => {
-                            let v1b = v1.borrow();
-                            let v2b = v2.borrow();
-                            if !eq(v1b.deref(), v2b.deref(), r_expr)
-                                .unwrap_or(false)
-                            {
-                                return Ok(false);
-                            }
+            for (k, v1) in l.iter() {
+                match r.get(k) {
+                    None => return false,
+                    Some(v2) => {
+                        let v1b = v1.borrow();
+                        let v2b = v2.borrow();
+                        if !eval_equals_value(v1b.deref(), v2b.deref()) {
+                            return false;
                         }
                     }
                 }
-
-                Ok(true)
             }
-            (&Value::Dict(_), _) => Ok(false),
 
-            (&Value::Tuple(ref l), &Value::Tuple(ref r)) => {
-                if l.len() != r.len() {
-                    return Ok(false);
-                }
-
-                for (lv, rv) in l.iter().zip(r.iter()) {
-                    let lvb = lv.borrow();
-                    let rvb = rv.borrow();
-
-                    if !eq(lvb.deref(), rvb.deref(), r_expr).unwrap_or(false) {
-                        return Ok(false);
-                    }
-                }
-
-                Ok(true)
-            }
-            (&Value::Tuple(_), _) => Ok(false),
-
-            (&Value::Vector(ref l), &Value::Vector(ref r)) => {
-                if l.len() != r.len() {
-                    return Ok(false);
-                }
-
-                for (lv, rv) in l.iter().zip(r.iter()) {
-                    let lvb = lv.borrow();
-                    let rvb = rv.borrow();
-
-                    if !eq(lvb.deref(), rvb.deref(), r_expr).unwrap_or(false) {
-                        return Ok(false);
-                    }
-                }
-
-                Ok(true)
-            }
-            (&Value::Vector(_), _) => Ok(false),
-
-            // closures are never equal to anything
-            (&Value::Closure { env: _, lambda: _ }, _) => Ok(false),
-            (&Value::Undefined, _) => {
-                unreachable!("Bug in remake - eq undefined")
-            }
+            true
         }
-    };
+        (&Value::Dict(_), _) => false,
 
-    eq(l_val.deref(), r_val.deref(), r_expr)
+        (&Value::Vector(ref l), &Value::Vector(ref r))
+        | (&Value::Tuple(ref l), &Value::Tuple(ref r)) => {
+            if l.len() != r.len() {
+                return false;
+            }
+
+            for (lv, rv) in l.iter().zip(r.iter()) {
+                let lvb = lv.borrow();
+                let rvb = rv.borrow();
+
+                if !eval_equals_value(lvb.deref(), rvb.deref()) {
+                    return false;
+                }
+            }
+
+            true
+        }
+        (&Value::Tuple(_), _) => false,
+        (&Value::Vector(_), _) => false,
+
+        // closures are never equal to anything
+        (&Value::Closure { env: _, lambda: _ }, _) => false,
+        (&Value::BuiltinFunction(_), _) => false,
+        (&Value::Undefined, _) => unreachable!("Bug in remake - eq undefined"),
+    }
 }
 
 fn eval_lt(
@@ -1447,8 +1479,16 @@ struct EvalEnv {
 }
 impl EvalEnv {
     fn new() -> Self {
+        let mut basis = CallFrame::new();
+        basis.push_block_env();
+        for builtin in BUILTINS.iter() {
+            basis.bind(
+                builtin.name.to_string(),
+                Rc::new(RefCell::new(Value::BuiltinFunction(builtin.clone()))),
+            );
+        }
         EvalEnv {
-            call_stack: vec![CallFrame::new()],
+            call_stack: vec![basis],
         }
     }
 
@@ -1536,6 +1576,260 @@ impl CallFrame {
 
         Err(ErrorKind::NameError { name: var })
     }
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+//                   Initial Basis & Standard Library
+//
+// TODO(ethan): once you have internet again, figure out how to reuse
+//              the error macros, and move this to its own module.
+//
+/////////////////////////////////////////////////////////////////////////////
+
+#[derive(Clone)]
+pub struct BuiltIn {
+    name: &'static str,
+    func: fn(&[Rc<RefCell<Value>>], &Span, &[Span])
+        -> Result<Rc<RefCell<Value>>, InternalError>,
+}
+
+impl fmt::Debug for BuiltIn {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "<builtin '{}'>", self.name)?;
+        Ok(())
+    }
+}
+
+const BUILTINS: [BuiltIn; 7] = [
+    // dict methods
+    BuiltIn {
+        name: "keys",
+        func: remake_keys,
+    },
+    BuiltIn {
+        name: "values",
+        func: remake_values,
+    },
+    BuiltIn {
+        name: "items",
+        func: remake_items,
+    },
+    BuiltIn {
+        name: "extend",
+        func: remake_extend,
+    },
+    BuiltIn {
+        name: "clear",
+        func: remake_clear,
+    },
+    BuiltIn {
+        name: "show",
+        func: remake_show,
+    },
+    // vec methods
+    BuiltIn {
+        name: "push",
+        func: remake_push,
+    },
+];
+
+fn remake_keys(
+    args: &[Rc<RefCell<Value>>],
+    apply_span: &Span,
+    arg_spans: &[Span],
+) -> Result<Rc<RefCell<Value>>, InternalError> {
+    debug_assert!(args.len() == arg_spans.len());
+
+    if args.len() != 1 {
+        return arity_error!(1, args.len(), apply_span.clone());
+    }
+
+    let dict_val = args[0].borrow();
+    match dict_val.deref() {
+        &Value::Dict(ref d) => {
+            // Note that we make a new rc-refcell because keys are
+            // immutable within a hashtable.
+            let keys = d.keys()
+                .map(|k| Rc::new(RefCell::new(k.clone())))
+                .collect::<Vec<_>>();
+            ok(Value::Vector(keys))
+        }
+        _ => type_error!(dict_val, arg_spans[0].clone(), "dict"),
+    }
+}
+
+fn remake_values(
+    args: &[Rc<RefCell<Value>>],
+    apply_span: &Span,
+    arg_spans: &[Span],
+) -> Result<Rc<RefCell<Value>>, InternalError> {
+    debug_assert!(args.len() == arg_spans.len());
+
+    if args.len() != 1 {
+        return arity_error!(1, args.len(), apply_span.clone());
+    }
+
+    let dict_val = args[0].borrow();
+    match dict_val.deref() {
+        &Value::Dict(ref d) => {
+            let values = d.values().map(|v| Rc::clone(v)).collect::<Vec<_>>();
+            ok(Value::Vector(values))
+        }
+        _ => type_error!(dict_val, arg_spans[0].clone(), "dict"),
+    }
+}
+
+fn remake_items(
+    args: &[Rc<RefCell<Value>>],
+    apply_span: &Span,
+    arg_spans: &[Span],
+) -> Result<Rc<RefCell<Value>>, InternalError> {
+    debug_assert!(args.len() == arg_spans.len());
+
+    if args.len() != 1 {
+        return arity_error!(1, args.len(), apply_span.clone());
+    }
+
+    let dict_val = args[0].borrow();
+    match dict_val.deref() {
+        &Value::Dict(ref d) => {
+            let items = d.iter()
+                .map(|(k, v)| {
+                    Rc::new(RefCell::new(Value::Tuple(vec![
+                        Rc::new(RefCell::new(k.clone())),
+                        Rc::clone(v),
+                    ])))
+                })
+                .collect::<Vec<_>>();
+            ok(Value::Vector(items))
+        }
+        _ => type_error!(dict_val, arg_spans[0].clone(), "dict"),
+    }
+}
+
+fn remake_clear(
+    args: &[Rc<RefCell<Value>>],
+    apply_span: &Span,
+    arg_spans: &[Span],
+) -> Result<Rc<RefCell<Value>>, InternalError> {
+    debug_assert!(args.len() == arg_spans.len());
+
+    if args.len() != 1 {
+        return arity_error!(1, args.len(), apply_span.clone());
+    }
+
+    // This should always succeed because Remake is single
+    // threaded.
+    let mut dict_val = args[0].borrow_mut();
+    {
+        match dict_val.deref_mut() {
+            &mut Value::Dict(ref mut d) => {
+                d.clear();
+                return ok(Value::Str("ok".to_string()));
+            }
+            _ => {} // FALLTHROUGH
+        }
+    }
+
+    type_error!(dict_val, arg_spans[0].clone(), "dict")
+}
+
+fn remake_extend(
+    args: &[Rc<RefCell<Value>>],
+    apply_span: &Span,
+    arg_spans: &[Span],
+) -> Result<Rc<RefCell<Value>>, InternalError> {
+    debug_assert!(args.len() == arg_spans.len());
+
+    if args.len() != 2 {
+        return arity_error!(2, args.len(), apply_span.clone());
+    }
+
+    // This should always succeed because Remake is single
+    // threaded.
+    let mut dict_val = args[0].borrow_mut();
+    {
+        match dict_val.deref_mut() {
+            &mut Value::Dict(ref mut d) => {
+                let ex_val = args[1].borrow();
+                match ex_val.deref() {
+                    &Value::Dict(ref ex) => {
+                        for (k, v) in ex.iter() {
+                            d.insert(k.clone(), Rc::clone(v));
+                        }
+
+                        return ok(Value::Str("ok".to_string()));
+                    }
+                    _ => {} // FALLTHROUGH
+                }
+
+                return type_error!(ex_val, arg_spans[1].clone(), "dict");
+            }
+            &mut Value::Vector(ref mut v) => {
+                let ex_val = args[1].borrow();
+                match ex_val.deref() {
+                    &Value::Vector(ref ex) => {
+                        for elem in ex.iter() {
+                            v.push(Rc::clone(elem));
+                        }
+
+                        return ok(Value::Str("ok".to_string()));
+                    }
+                    _ => {} // FALLTHROUGH
+                }
+
+                return type_error!(ex_val, arg_spans[1].clone(), "vec");
+            }
+            _ => {} // FALLTHROUGH
+        }
+    }
+
+    type_error!(dict_val, arg_spans[0].clone(), "dict", "vec")
+}
+
+fn remake_show(
+    args: &[Rc<RefCell<Value>>],
+    apply_span: &Span,
+    arg_spans: &[Span],
+) -> Result<Rc<RefCell<Value>>, InternalError> {
+    debug_assert!(args.len() == arg_spans.len());
+
+    if args.len() != 1 {
+        return arity_error!(1, args.len(), apply_span.clone());
+    }
+
+    // This should always succeed because Remake is single
+    // threaded.
+    let val = args[0].borrow();
+    ok(Value::Str(val.to_string()))
+}
+
+fn remake_push(
+    args: &[Rc<RefCell<Value>>],
+    apply_span: &Span,
+    arg_spans: &[Span],
+) -> Result<Rc<RefCell<Value>>, InternalError> {
+    debug_assert!(args.len() == arg_spans.len());
+
+    if args.len() != 2 {
+        return arity_error!(2, args.len(), apply_span.clone());
+    }
+
+    // This should always succeed because Remake is single
+    // threaded.
+    let mut dict_val = args[0].borrow_mut();
+    {
+        match dict_val.deref_mut() {
+            &mut Value::Vector(ref mut v) => {
+                v.push(Rc::clone(&args[1]));
+                return ok(Value::Str("ok".to_string()));
+            }
+            _ => {} // FALLTHROUGH
+        }
+    }
+
+    type_error!(dict_val, arg_spans[0].clone(), "vec")
 }
 
 /// We don't have to spend any effort assigning indicies to groups because
@@ -1961,11 +2255,91 @@ mod tests {
         Value::Bool(false)
     );
 
+    eval_to!(
+        dict_18_,
+        r#"
+        let ks = keys({ "how": 1, "exciting": 2 });
+        ("how" in ks) && ("exciting" in ks)
+        "#,
+        Value::Bool(true)
+    );
+
+    eval_to!(
+        dict_19_,
+        r#"
+        let vs = values({ "how": 1, "exciting": 2 });
+        (1 in vs) && (2 in vs)
+        "#,
+        Value::Bool(true)
+    );
+
+    eval_to!(
+        dict_20_,
+        r#"
+        let is = items({ "how": 1, "exciting": 2 });
+        (("how", 1) in is) && (("exciting", 2) in is)
+        "#,
+        Value::Bool(true)
+    );
+
+    eval_to!(
+        dict_21_,
+        r#"
+        let d = { "how": 1 };
+        extend(d, {"exciting": 2});
+        d == { "how": 1, "exciting": 2 }
+         "#,
+        Value::Bool(true)
+    );
+
+    eval_fail!(dict_22_, r#" keys() "#, "ArityError");
+    eval_fail!(dict_23_, r#" keys(1, 2) "#, "ArityError");
+
+    eval_fail!(dict_24_, r#" items() "#, "ArityError");
+    eval_fail!(dict_25_, r#" items(1, 2) "#, "ArityError");
+
+    eval_fail!(dict_26_, r#" values() "#, "ArityError");
+    eval_fail!(dict_27_, r#" values(1, 2) "#, "ArityError");
+
+    eval_fail!(dict_28_, r#" extend(1) "#, "ArityError");
+    eval_fail!(dict_29_, r#" extend(1, 3, 2) "#, "ArityError");
+
+    eval_to!(
+        dict_30_,
+        r#"
+        let d = { "how": 1 };
+        clear(d);
+        d == {}
+         "#,
+        Value::Bool(true)
+    );
+    eval_fail!(dict_31_, r#" clear() "#, "ArityError");
+    eval_fail!(dict_32_, r#" clear(1, 2) "#, "ArityError");
+
+    eval_to!(
+        dict_33_,
+        r#"
+        let d = { "how": 1 };
+        d[{
+            clear(d);
+            d[1] = "x";
+            d["x"] = "y";
+            d[1]
+        }]
+         "#,
+        Value::Str("y".to_string())
+    );
+
+    eval_to!(
+        dict_34_,
+        r#"
+        let d = { "how": 1 };
+        show(d)
+        "#,
+        Value::Str(r#"{ "how": 1 }"#.to_string())
+    );
+
     // TODO(ethan): tuples as keys
-    // TODO(ethan): extend dict with other dict (requires functions)
-    // TODO(ethan): keys (requires functions)
-    // TODO(ethan): items (requires functions)
-    // TODO(ethan): builtin containment checks with the `in` keyword
 
     //
     // tuples
@@ -2011,6 +2385,12 @@ mod tests {
     x[0]
     "#,
         "TypeError"
+    );
+
+    eval_to!(
+        tuple_9_,
+        r#" show((1, 2)) "#,
+        Value::Str("(1, 2)".to_string())
     );
 
     //
@@ -2077,8 +2457,6 @@ mod tests {
         "KeyError"
     );
 
-    eval_fail!(tuple_18_, r#" [1, 2]["bad key"] "#, "TypeError");
-
     eval_fail!(
         vec_19_,
         r#"
@@ -2097,8 +2475,33 @@ mod tests {
     eval_fail!(vec_24_, r#" [1, 2][1:"bad key"] "#, "TypeError");
     eval_fail!(vec_25_, r#" (3, 4)[1:2] "#, "TypeError");
 
-    // TODO(ethan): append to vector (requires functions)
-    // TODO(ethan): extend vector (requires functions)
+    eval_fail!(vec_26_, r#" [1, 2]["bad key"] "#, "TypeError");
+
+    eval_to!(
+        vec_27_,
+        r#" show([1, 2]) "#,
+        Value::Str("[1, 2]".to_string())
+    );
+
+    eval_to!(
+        vec_28_,
+        r#"
+    let v = [1, 2];
+    push(v, "next");
+    v == [1, 2, "next"]
+    "#,
+        Value::Bool(true)
+    );
+
+    eval_to!(
+        vec_29_,
+        r#"
+    let v = [1, 2];
+    extend(v, [3, 4]);
+    v == [1, 2, 3, 4]
+    "#,
+        Value::Bool(true)
+    );
 
     //
     // If expressions & statements
@@ -2493,6 +2896,17 @@ mod tests {
     eval_fail!(fn_5_, "fn() { x }", "NameError");
     eval_fail!(fn_6_, "15(\"hi\")", "TypeError");
 
+    eval_fail!(
+        fn_7_,
+        r#"
+    fn f(x, y) {
+        x <+> y
+    }
+    f(1)
+    "#,
+        "ArityError"
+    );
+
     eval_to!(
         fn_recur_1_,
         r#"
@@ -2507,6 +2921,42 @@ mod tests {
     "#,
         Value::Int(5)
     );
+
+    //
+    // Rc Borrow Tests (also see dict_33_)
+    //
+
+    eval_to!(
+        rc_borrow_1_,
+        r#"
+        let d = [1];
+        d[{
+            push(d, "y");
+            d[0]
+        }]
+         "#,
+        Value::Str("y".to_string())
+    );
+
+    eval_to!(
+        rc_borrow_2_,
+        r#"
+        let d = (1, "y");
+        d[ d[0] ]
+        "#,
+        Value::Str("y".to_string())
+    );
+
+    /* TODO
+    eval_fail!(
+        rc_borrow_3_,
+        r#"
+        let d = 1;
+        d <+> { d[0] = 2; d[0] }
+        "#,
+        "TypeError"
+    );
+    */
 
     //
     // Misc
@@ -2524,6 +2974,9 @@ mod tests {
         "#,
         Value::Int(2)
     );
+
+    // TODO
+    // eval_to!(index_prec_1_, r#"let x = (1, 2); x == x[1]"#, Value::Bool(false));
 
     eval_fail!(cap_1_, r#" cap 3.5 as foo "#, "TypeError");
 

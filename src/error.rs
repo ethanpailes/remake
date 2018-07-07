@@ -143,6 +143,16 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
                     }
                 )?;
             }
+            &ArityError {
+                ref expected,
+                ref actual,
+            } => {
+                writeln!(
+                    f,
+                    "ArityError: expected {} arguments, not {}",
+                    expected, actual
+                )?;
+            }
             &FinalValueNotRegex { ref actual } => {
                 writeln!(
                     f,
@@ -205,6 +215,10 @@ pub enum ErrorKind {
     },
     LoopError {
         keyword: LoopErrorKind,
+    },
+    ArityError {
+        expected: usize,
+        actual: usize,
     },
 }
 
