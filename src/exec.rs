@@ -1694,8 +1694,8 @@ const BUILTINS: [BuiltIn; 7] = [
     },
     // vec methods
     BuiltIn {
-        name: "push",
-        func: remake_push,
+        name: "append",
+        func: remake_append,
     },
 ];
 
@@ -1870,7 +1870,7 @@ fn remake_show(
     ok(Value::Str(val.to_string()))
 }
 
-fn remake_push(
+fn remake_append(
     args: &[Rc<RefCell<Value>>],
     apply_span: &Span,
     arg_spans: &[Span],
@@ -2552,7 +2552,7 @@ mod tests {
         vec_28_,
         r#"
     let v = [1, 2];
-    push(v, "next");
+    append(v, "next");
     v == [1, 2, "next"]
     "#,
         Value::Bool(true)
@@ -2996,7 +2996,7 @@ mod tests {
         r#"
         let d = [1];
         d[{
-            push(d, "y");
+            append(d, "y");
             d[0]
         }]
          "#,
