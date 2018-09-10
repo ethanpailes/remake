@@ -27,8 +27,6 @@ extern {
         "int" => lex::Token::IntLit(<i64>),
         "float" => lex::Token::FloatLit(<f64>),
         "str" => lex::Token::StringLit(<String>),
-        "true" => lex::Token::True,
-        "false" => lex::Token::False,
         "identifier" => lex::Token::Id(<&'input str>),
 
         "(" => lex::Token::OpenParen,
@@ -75,8 +73,6 @@ extern {
         "as" => lex::Token::As,
         "cap" => lex::Token::Cap,
         "let" => lex::Token::Let,
-        "if" => lex::Token::If,
-        "else" => lex::Token::Else,
         "in" => lex::Token::In,
         "for" => lex::Token::For,
         "break" => lex::Token::Break,
@@ -110,19 +106,6 @@ Expr0: Box<Expr> = {
         Box::new(Expr::new(b.kind, Span { start: l, end: r })),
 };
 ExprKind0: ExprKind = {
-    // TODO(ethan): make these higher precidence than the comparison
-    // operators
-    <e1:Expr0> "&&" <e2:Expr1> => ExprKind::BinOp(e1, BOp::And, e2),
-    <e1:Expr0> "||" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Or, e2),
-
-    <e1:Expr0> "==" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Equals, e2),
-    <e1:Expr0> "!=" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Ne, e2),
-    <e1:Expr0> "<" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Lt, e2),
-    <e1:Expr0> ">" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Gt, e2),
-    <e1:Expr0> "<=" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Le, e2),
-    <e1:Expr0> ">=" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Ge, e2),
-    <e1:Expr0> "in" <e2:Expr1> => ExprKind::BinOp(e1, BOp::In, e2),
-
     <e1:Expr0> "." <e2:Expr1> => ExprKind::BinOp(e1, BOp::Concat, e2),
     <e1:Expr0> "|" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Alt, e2),
 
@@ -205,7 +188,6 @@ ExprKind5: ExprKind = {
     //
     // Arith operators
     //
-    "!" <e:Expr6> => ExprKind::UnaryOp(UOp::Not, e),
     "-" <e:Expr6> => ExprKind::UnaryOp(UOp::Neg, e),
 
     <e1:Expr5> "<+>" <e2:Expr6> => ExprKind::BinOp(e1, BOp::Plus, e2),
@@ -257,41 +239,9 @@ ExprKind6: ExprKind = {
     <var:"identifier"> => ExprKind::Var(var.to_string()),
     <float:"float"> => ExprKind::FloatLiteral(float),
     <str:"str"> => ExprKind::StringLiteral(str),
-    "true" => ExprKind::BoolLiteral(true),
-    "false" => ExprKind::BoolLiteral(false),
     "{" <entries: Comma<DictEntry>> "}" => ExprKind::DictLiteral(entries),
     "(" <entries: Comma1<Expr0>> ")" => ExprKind::TupleLiteral(entries),
     "[" <entries: Comma<Expr0>> "]" => ExprKind::VectorLiteral(entries),
-
-    "if" "(" <cond: Expr0> ")" "{"
-        <true_branch: Expr0>
-    <middle_branches: ("}" "else" "if" "(" Expr0 ")" "{" Expr0)*>
-    "}" "else" "{"
-        <false_branch: Expr0>
-    "}"
-    => {
-        let mut false_branch = false_branch;
-        for branch in middle_branches.into_iter().rev() {
-            let cond = branch.4;
-            let branch = branch.7;
-            let l = cond.span.start;
-            let r = branch.span.end;
-
-            false_branch = Box::new(Expr::new(
-                ExprKind::If {
-                    condition: cond,
-                    true_branch: branch,
-                    false_branch: false_branch,
-                },
-                Span { start: l, end: r }));
-        }
-
-        ExprKind::If {
-            condition: cond,
-            true_branch: true_branch,
-            false_branch: false_branch,
-        }
-    },
 
     "fn" "(" <args: Comma<"identifier">> ")" "{" <body: BlockBody> "}" =>
         util::construct_lambda(args, body),
@@ -364,75 +314,12 @@ Statement: Statement = {
         Statement::new(s, Span { start: l, end: r })
 };
 StatementKind: StatementKind = {
-    "if" "(" <cond: Expr0> ")" "{"
-        <true_branch: Statement+>
-    "}" =>
-        StatementKind::IfTrue {
-            condition: cond,
-            true_branch: true_branch,
-        },
-
-    "if" "(" <cond: Expr0> ")" "{"
-        <true_branch: Statement+>
-    <middle_branches: ("}" "else" "if" "(" Expr0 ")" "{" Statement+)*>
-    "}" "else" "{"
-        <false_branch: Statement+>
-    "}"
-    => {
-        let mut false_branch = false_branch;
-        for branch in middle_branches.into_iter().rev() {
-            let cond = branch.4;
-            let block = branch.7;
-            let l = cond.span.start;
-            let r = block[block.len() - 1].span.end;
-
-            false_branch = vec![Statement::new(
-                StatementKind::IfElse {
-                    condition: cond,
-                    true_branch: block,
-                    false_branch: false_branch,
-                },
-                Span { start: l, end: r })];
-        }
-
-        StatementKind::IfElse {
-            condition: cond,
-            true_branch: true_branch,
-            false_branch: false_branch,
-        }
-    },
-
     "for" "(" <var:"identifier"> "in" <collection:Expr0> ")" "{"
         <body: Statement+>
     "}" => {
         StatementKind::For {
             variable: var.to_string(),
             collection: collection,
-            body: body,
-        }
-    },
-
-    "while" "(" <condition: Expr0> ")" "{"
-        // we do allow an empty while body, cause that can sometimes be
-        // useful for some hackery
-        <body: Statement*>
-    "}" => {
-        StatementKind::While {
-            condition: condition,
-            body: body,
-        }
-    },
-
-    <l: @L> "loop" <r: @R> "{"
-        // we do allow empty while body, cause that can sometimes be
-        // useful for some hackery
-        <body: Statement*>
-    "}" => {
-        StatementKind::While {
-            condition: Box::new(Expr::new(
-                ExprKind::BoolLiteral(true),
-                Span { start: l, end: r }
-                )),
             body: body,
         }
     },

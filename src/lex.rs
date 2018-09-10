@@ -69,8 +69,7 @@ pub enum Token<'input> {
     As,
     Cap,
     Let,
-    True,
-    False,
+
     If,
     Else,
     In,
@@ -142,8 +141,6 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::As => write!(f, "as"),
             &Token::Cap => write!(f, "cap"),
             &Token::Let => write!(f, "let"),
-            &Token::True => write!(f, "true"),
-            &Token::False => write!(f, "false"),
             &Token::If => write!(f, "if"),
             &Token::Else => write!(f, "else"),
             &Token::In => write!(f, "in"),
@@ -469,8 +466,6 @@ impl<'input> Lexer<'input> {
                     "cap" => Ok((Token::Cap, end)),
                     "as" => Ok((Token::As, end)),
                     "let" => Ok((Token::Let, end)),
-                    "true" => Ok((Token::True, end)),
-                    "false" => Ok((Token::False, end)),
                     "if" => Ok((Token::If, end)),
                     "else" => Ok((Token::Else, end)),
                     "in" => Ok((Token::In, end)),
@@ -713,8 +708,6 @@ mod tests {
             (&Token::As, &Token::As) => true,
             (&Token::Cap, &Token::Cap) => true,
             (&Token::Let, &Token::Let) => true,
-            (&Token::True, &Token::True) => true,
-            (&Token::False, &Token::False) => true,
 
             (&Token::And, &Token::And) => true,
             (&Token::Or, &Token::Or) => true,
@@ -1085,8 +1078,6 @@ mod tests {
     tok_round_trip!(trt_19_, "*?");
     tok_round_trip!(trt_20_, "|");
     tok_round_trip!(trt_21_, ";");
-    tok_round_trip!(trt_22_, "true");
-    tok_round_trip!(trt_23_, "false");
     tok_round_trip!(trt_24_, "&&");
     tok_round_trip!(trt_25_, "||");
     tok_round_trip!(trt_26_, "==");

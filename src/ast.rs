@@ -60,15 +60,9 @@ pub enum ExprKind {
     IntLiteral(i64),
     FloatLiteral(f64),
     StringLiteral(String),
-    BoolLiteral(bool),
     DictLiteral(Vec<(Box<Expr>, Box<Expr>)>),
     TupleLiteral(Vec<Box<Expr>>),
     VectorLiteral(Vec<Box<Expr>>),
-    If {
-        condition: Box<Expr>,
-        true_branch: Box<Expr>,
-        false_branch: Box<Expr>,
-    },
     Lambda {
         expr: Rc<Lambda>,
         // We pre-compute the free variables so that we don't have to
@@ -97,27 +91,15 @@ pub enum BOp {
     Concat,
     Alt,
 
-    Equals,
-    Ne,
-    Le,
-    Ge,
-    Lt,
-    Gt,
-    And,
-    Or,
-
     Plus,
     Minus,
     Div,
     Times,
     Mod,
-
-    In,
 }
 
 #[derive(Debug, Clone)]
 pub enum UOp {
-    Not,
     Neg,
     RepeatZeroOrMore(bool),
     RepeatOneOrMore(bool),
@@ -148,23 +130,10 @@ impl Statement {
 pub enum StatementKind {
     LetBinding(String, Box<Expr>),
     Assign(Box<Expr>, Box<Expr>),
-    IfTrue {
-        condition: Box<Expr>,
-        true_branch: Vec<Statement>,
-    },
-    IfElse {
-        condition: Box<Expr>,
-        true_branch: Vec<Statement>,
-        false_branch: Vec<Statement>,
-    },
     Expr(Box<Expr>),
     For {
         variable: String,
         collection: Box<Expr>,
-        body: Vec<Statement>,
-    },
-    While {
-        condition: Box<Expr>,
         body: Vec<Statement>,
     },
     Continue,
@@ -323,16 +292,6 @@ impl<'expr> HeapVisitor<'expr> {
                 self.stack.push(Frame::PreExpr(&collection));
             }
 
-            &ExprKind::If {
-                ref condition,
-                ref true_branch,
-                ref false_branch,
-            } => {
-                self.stack.push(Frame::PreExpr(&false_branch));
-                self.stack.push(Frame::PreExpr(&true_branch));
-                self.stack.push(Frame::PreExpr(&condition));
-            }
-
             &ExprKind::Lambda {
                 ref expr,
                 free_vars: _,
@@ -366,7 +325,6 @@ impl<'expr> HeapVisitor<'expr> {
             | &ExprKind::IntLiteral(_)
             | &ExprKind::FloatLiteral(_)
             | &ExprKind::StringLiteral(_)
-            | &ExprKind::BoolLiteral(_)
             | &ExprKind::ExprPoison => {}
         }
     }
@@ -381,28 +339,6 @@ impl<'expr> HeapVisitor<'expr> {
                 self.stack.push(Frame::PreExpr(&r));
                 self.stack.push(Frame::PreExpr(&l));
             }
-            &StatementKind::IfTrue {
-                ref condition,
-                ref true_branch,
-            } => {
-                for s in true_branch.iter().rev() {
-                    self.stack.push(Frame::PreStmt(&s));
-                }
-                self.stack.push(Frame::PreExpr(&condition));
-            }
-            &StatementKind::IfElse {
-                ref condition,
-                ref true_branch,
-                ref false_branch,
-            } => {
-                for s in false_branch.iter().rev() {
-                    self.stack.push(Frame::PreStmt(&s));
-                }
-                for s in true_branch.iter().rev() {
-                    self.stack.push(Frame::PreStmt(&s));
-                }
-                self.stack.push(Frame::PreExpr(&condition));
-            }
             &StatementKind::Expr(ref e) => {
                 self.stack.push(Frame::PreExpr(&e));
             }
@@ -415,15 +351,6 @@ impl<'expr> HeapVisitor<'expr> {
                     self.stack.push(Frame::PreStmt(&s));
                 }
                 self.stack.push(Frame::PreExpr(&collection));
-            }
-            &StatementKind::While {
-                ref condition,
-                ref body,
-            } => {
-                for s in body.iter().rev() {
-                    self.stack.push(Frame::PreStmt(&s));
-                }
-                self.stack.push(Frame::PreExpr(&condition));
             }
             &StatementKind::Block(ref body) => {
                 for s in body.iter().rev() {
