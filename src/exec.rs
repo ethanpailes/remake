@@ -18,7 +18,7 @@ use regex_syntax::ast::{GroupKind, RepetitionKind};
 
 use ast;
 use ast::{Expr, ExprKind, Span, Statement, StatementKind};
-use error::{ErrorKind, InternalError, LoopErrorKind};
+use error::{ErrorKind, InternalError};
 use re_operators;
 use re_operators::noncapturing_group;
 use util::POISON_SPAN;
@@ -177,15 +177,6 @@ macro_rules! type_guard {
             }
         }
     }
-}
-
-macro_rules! loop_error {
-    ($keyword:expr, $span:expr) => {
-        Err(InternalError::new(
-            ErrorKind::LoopError { keyword: $keyword },
-            $span,
-        ))
-    };
 }
 
 macro_rules! arity_error {
@@ -614,49 +605,6 @@ fn exec(env: &mut EvalEnv, s: &Statement) -> Result<(), InternalError> {
         StatementKind::Expr(ref e) => {
             eval_(env, &e)?;
             Ok(())
-        }
-
-        StatementKind::For {
-            ref variable,
-            ref collection,
-            ref body,
-        } => {
-            let v_val = eval_(env, &collection)?;
-            let v_val = v_val.borrow();
-
-            match v_val.deref() {
-                &Value::Tuple(ref v) => {
-                    'FOR_LOOP: for elem in v.iter() {
-                        env.bind(variable.clone(), elem.clone());
-                        for s in body.iter() {
-                            match exec(env, s) {
-                                Err(err) => match err.kind {
-                                    ErrorKind::LoopError {
-                                        keyword: LoopErrorKind::Continue,
-                                    } => continue 'FOR_LOOP,
-                                    ErrorKind::LoopError {
-                                        keyword: LoopErrorKind::Break,
-                                    } => break 'FOR_LOOP,
-                                    _ => return Err(err),
-                                },
-                                Ok(()) => {} // FALLTHROUGH
-                            }
-                        }
-                    }
-
-                    Ok(())
-                }
-                _ => {
-                    type_error!(v_val, collection.span.clone(), "vec", "tuple")
-                }
-            }
-        }
-
-        StatementKind::Continue => {
-            loop_error!(LoopErrorKind::Continue, s.span.clone())
-        }
-        StatementKind::Break => {
-            loop_error!(LoopErrorKind::Break, s.span.clone())
         }
 
         StatementKind::Block(ref statements) => {
@@ -1155,25 +1103,6 @@ mod tests {
         tuple_9_,
         r#" show((1, 2)) "#,
         Value::Str("(1, 2)".to_string())
-    );
-
-    //
-    // For loops
-    //
-
-    eval_fail!(for_1_, r#" continue; x "#, "LoopError");
-    eval_fail!(for_2_, r#" break; x "#, "LoopError");
-
-    eval_to!(
-        for_6_,
-        r#"
-        let sum = 0;
-        for (i in (1, 2, 3)) {
-            sum = sum <+> i;
-        }
-        sum
-        "#,
-        Value::Int(6)
     );
 
     //

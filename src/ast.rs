@@ -123,13 +123,6 @@ pub enum StatementKind {
     LetBinding(String, Box<Expr>),
     Assign(Box<Expr>, Box<Expr>),
     Expr(Box<Expr>),
-    For {
-        variable: String,
-        collection: Box<Expr>,
-        body: Vec<Statement>,
-    },
-    Continue,
-    Break,
     #[allow(dead_code)]
     Block(Vec<Statement>),
 }
@@ -307,22 +300,11 @@ impl<'expr> HeapVisitor<'expr> {
             &StatementKind::Expr(ref e) => {
                 self.stack.push(Frame::PreExpr(&e));
             }
-            &StatementKind::For {
-                variable: _,
-                ref collection,
-                ref body,
-            } => {
-                for s in body.iter().rev() {
-                    self.stack.push(Frame::PreStmt(&s));
-                }
-                self.stack.push(Frame::PreExpr(&collection));
-            }
             &StatementKind::Block(ref body) => {
                 for s in body.iter().rev() {
                     self.stack.push(Frame::PreStmt(&s));
                 }
             }
-            &StatementKind::Continue | &StatementKind::Break => {}
         }
     }
 }

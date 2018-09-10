@@ -45,7 +45,6 @@ pub enum Token<'input> {
     Question,
     LazyQuestion,
     Semi,
-    Colon,
 
     Minus,
     Add,
@@ -58,14 +57,6 @@ pub enum Token<'input> {
     Cap,
     Let,
 
-    If,
-    Else,
-    In,
-    For,
-    Continue,
-    Break,
-    While,
-    Loop,
     FnKeyword,
     Return,
 }
@@ -106,7 +97,6 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::Question => write!(f, "?"),
             &Token::LazyQuestion => write!(f, "??"),
             &Token::Semi => write!(f, ";"),
-            &Token::Colon => write!(f, ":"),
 
             &Token::Minus => write!(f, "-"),
             &Token::Percent => write!(f, "%"),
@@ -118,14 +108,6 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::As => write!(f, "as"),
             &Token::Cap => write!(f, "cap"),
             &Token::Let => write!(f, "let"),
-            &Token::If => write!(f, "if"),
-            &Token::Else => write!(f, "else"),
-            &Token::In => write!(f, "in"),
-            &Token::For => write!(f, "for"),
-            &Token::Continue => write!(f, "continue"),
-            &Token::Break => write!(f, "break"),
-            &Token::While => write!(f, "while"),
-            &Token::Loop => write!(f, "loop"),
             &Token::FnKeyword => write!(f, "fn"),
             &Token::Return => write!(f, "return"),
         }
@@ -443,14 +425,6 @@ impl<'input> Lexer<'input> {
                     "cap" => Ok((Token::Cap, end)),
                     "as" => Ok((Token::As, end)),
                     "let" => Ok((Token::Let, end)),
-                    "if" => Ok((Token::If, end)),
-                    "else" => Ok((Token::Else, end)),
-                    "in" => Ok((Token::In, end)),
-                    "for" => Ok((Token::For, end)),
-                    "continue" => Ok((Token::Continue, end)),
-                    "break" => Ok((Token::Break, end)),
-                    "while" => Ok((Token::While, end)),
-                    "loop" => Ok((Token::Loop, end)),
                     "fn" => Ok((Token::FnKeyword, end)),
                     "return" => Ok((Token::Return, end)),
 
@@ -572,7 +546,6 @@ impl<'input> Lexer<'input> {
                     "</>" => Ok((Token::Div, end)),
                     "<*>" => Ok((Token::Times, end)),
                     "<+>" => Ok((Token::Add, end)),
-                    ":" => Ok((Token::Colon, end)),
 
                     "=>" => Err(self.error(
                         LexicalErrorKind::ReservedButNotUsedOperator {
@@ -1041,11 +1014,6 @@ mod tests {
     tok_round_trip!(trt_39_, "3.0");
     tok_round_trip!(trt_40_, "\"str\"");
     tok_round_trip!(trt_41_, "'re'");
-    tok_round_trip!(trt_42_, ":");
-    tok_round_trip!(trt_43_, "if");
-    tok_round_trip!(trt_44_, "else");
-    tok_round_trip!(trt_45_, "in");
-    tok_round_trip!(trt_46_, "for");
     tok_round_trip!(trt_47_, "fn");
     tok_round_trip!(trt_48_, "return");
 

@@ -50,8 +50,6 @@ extern {
         "?" => lex::Token::Question,
         "??" => lex::Token::LazyQuestion,
 
-        ":" => lex::Token::Colon,
-
         "<+>" => lex::Token::Add,
         "</>" => lex::Token::Div,
         "<*>" => lex::Token::Times,
@@ -61,12 +59,6 @@ extern {
         "as" => lex::Token::As,
         "cap" => lex::Token::Cap,
         "let" => lex::Token::Let,
-        "in" => lex::Token::In,
-        "for" => lex::Token::For,
-        "break" => lex::Token::Break,
-        "continue" => lex::Token::Continue,
-        "while" => lex::Token::While,
-        "loop" => lex::Token::Loop,
         "fn" => lex::Token::FnKeyword,
         "return" => lex::Token::Return,
     }
@@ -267,16 +259,6 @@ Statement: Statement = {
         Statement::new(s, Span { start: l, end: r })
 };
 StatementKind: StatementKind = {
-    "for" "(" <var:"identifier"> "in" <collection:Expr0> ")" "{"
-        <body: Statement+>
-    "}" => {
-        StatementKind::For {
-            variable: var.to_string(),
-            collection: collection,
-            body: body,
-        }
-    },
-
     "let" <id:"identifier"> "=" <e:Expr0> ";" => {
         StatementKind::LetBinding(id.to_string(), e)
     },
@@ -297,8 +279,6 @@ StatementKind: StatementKind = {
     },
 
     <e:Expr0> ";" => StatementKind::Expr(e),
-    "break" ";" => StatementKind::Break,
-    "continue" ";" => StatementKind::Continue,
 };
 
 //////////////////////////////////////////////////////////////////////////

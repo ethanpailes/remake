@@ -130,16 +130,6 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
                     neum
                 )?;
             }
-            &LoopError { ref keyword } => {
-                writeln!(
-                    f,
-                    "LoopError: '{}' not properly within loop",
-                    match keyword {
-                        &LoopErrorKind::Break => "break",
-                        &LoopErrorKind::Continue => "continue",
-                    }
-                )?;
-            }
             &ArityError {
                 ref expected,
                 ref actual,
@@ -207,19 +197,10 @@ pub enum ErrorKind {
     FinalValueNotRegex {
         actual: String,
     },
-    LoopError {
-        keyword: LoopErrorKind,
-    },
     ArityError {
         expected: usize,
         actual: usize,
     },
-}
-
-#[derive(Debug)]
-pub enum LoopErrorKind {
-    Continue,
-    Break,
 }
 
 #[derive(Debug)]
