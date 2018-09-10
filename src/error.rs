@@ -106,9 +106,6 @@ impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
             &NameError { ref name } => {
                 writeln!(f, "NameError: unknown variable '{}'.", name)?;
             }
-            &KeyError { ref key } => {
-                writeln!(f, "KeyError: {}.", key)?;
-            }
             &TypeError {
                 ref expected,
                 ref actual,
@@ -206,9 +203,6 @@ pub enum ErrorKind {
     },
     ZeroDivisionError {
         neum: String,
-    },
-    KeyError {
-        key: String,
     },
     FinalValueNotRegex {
         actual: String,

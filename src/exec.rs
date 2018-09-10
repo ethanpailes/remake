@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref};
 use std::rc::Rc;
 
 use regex_syntax;
@@ -33,9 +33,7 @@ pub enum Value {
     Int(i64),
     Float(f64),
     Str(String),
-    Dict(HashMap<Value, Rc<RefCell<Value>>>),
     Tuple(Vec<Rc<RefCell<Value>>>),
-    Vector(Vec<Rc<RefCell<Value>>>),
     Closure {
         env: Env,
         lambda: Rc<ast::Lambda>,
@@ -56,9 +54,7 @@ impl Value {
             &Value::Int(_) => "int",
             &Value::Float(_) => "float",
             &Value::Str(_) => "str",
-            &Value::Dict(_) => "dict",
             &Value::Tuple(_) => "tuple",
-            &Value::Vector(_) => "vec",
             &Value::Closure { env: _, lambda: _ } => "closure",
 
             // User's should not have to special case based on the
@@ -91,17 +87,6 @@ impl fmt::Display for Value {
             }
 
             &Value::Regex(_) => write!(f, "TODO show regex")?,
-            &Value::Dict(ref d) => {
-                write!(f, "{{ ")?;
-                for (i, (k, v)) in d.iter().enumerate() {
-                    let v = v.borrow();
-                    write!(f, "{}: {}", k, v.deref())?;
-                    if i < d.len() - 1 {
-                        write!(f, ", ")?;
-                    }
-                }
-                write!(f, " }}")?;
-            }
             &Value::Tuple(ref tup) => {
                 write!(f, "(")?;
                 for (i, elem) in tup.iter().enumerate() {
@@ -112,17 +97,6 @@ impl fmt::Display for Value {
                     }
                 }
                 write!(f, ")")?;
-            }
-            &Value::Vector(ref vec) => {
-                write!(f, "[")?;
-                for (i, elem) in vec.iter().enumerate() {
-                    let elem = elem.borrow();
-                    write!(f, "{}", elem.deref())?;
-                    if i < vec.len() - 1 {
-                        write!(f, ", ")?;
-                    }
-                }
-                write!(f, "]")?;
             }
             &Value::Undefined => unreachable!("Bug in remake - undefined disp"),
         }
@@ -205,17 +179,6 @@ macro_rules! type_guard {
     }
 }
 
-macro_rules! key_error {
-    ($key:expr, $span:expr) => {
-        Err(InternalError::new(
-            ErrorKind::KeyError {
-                key: $key.to_string(),
-            },
-            $span,
-        ))
-    };
-}
-
 macro_rules! loop_error {
     ($keyword:expr, $span:expr) => {
         Err(InternalError::new(
@@ -271,31 +234,6 @@ fn eval_(
         ExprKind::IntLiteral(ref i) => ok(Value::Int(i.clone())),
         ExprKind::FloatLiteral(ref f) => ok(Value::Float(f.clone())),
         ExprKind::StringLiteral(ref s) => ok(Value::Str(s.clone())),
-        ExprKind::DictLiteral(ref pairs) => {
-            let mut h = if pairs.len() == 0 {
-                HashMap::new()
-            } else {
-                HashMap::with_capacity(pairs.len() * 2)
-            };
-
-            for &(ref k_expr, ref v_expr) in pairs.iter() {
-                let k_val = eval_(env, &k_expr)?;
-                type_guard!(
-                    k_val,
-                    k_expr.span.clone(),
-                    "str",
-                    "int",
-                    "float"
-                );
-                let v_val = eval_(env, &v_expr)?;
-
-                let k_val = k_val.borrow();
-
-                h.insert(k_val.deref().clone(), v_val);
-            }
-
-            ok(Value::Dict(h))
-        }
         ExprKind::TupleLiteral(ref es) => {
             debug_assert!(es.len() != 0);
             let mut vs = Vec::with_capacity(es.len());
@@ -305,19 +243,6 @@ fn eval_(
             }
 
             ok(Value::Tuple(vs))
-        }
-        ExprKind::VectorLiteral(ref es) => {
-            let mut vs = if es.len() == 0 {
-                Vec::new()
-            } else {
-                Vec::with_capacity(es.len())
-            };
-
-            for v_expr in es.iter() {
-                vs.push(eval_(env, &v_expr)?);
-            }
-
-            ok(Value::Vector(vs))
         }
 
         ExprKind::BinOp(ref l_expr, ref op, ref r_expr) => match op {
@@ -587,85 +512,6 @@ fn eval_(
         ExprKind::Var(ref var) => env.lookup(var)
             .map_err(|e| InternalError::new(e, expr.span.clone())),
 
-        ExprKind::Index(ref collection, ref key) => {
-            let c_val = eval_(env, collection)?;
-            type_guard!(c_val, collection.span.clone(), "dict", "tuple", "vec");
-            let k_val = eval_(env, key)?;
-
-            let c_val = c_val.borrow();
-            match c_val.deref() {
-                &Value::Dict(ref d) => {
-                    type_guard!(
-                        k_val,
-                        key.span.clone(),
-                        "str",
-                        "int",
-                        "float"
-                    );
-
-                    // weird borrow games so we can move k_val later
-                    {
-                        let k_valb = k_val.borrow();
-                        match d.get(k_valb.deref()) {
-                            Some(v) => return Ok(Rc::clone(v)),
-                            None => {} // FALLTHROUGH
-                        }
-                    }
-
-                    ok(Value::Tuple(vec![
-                        Rc::new(RefCell::new(Value::Str("err".to_string()))),
-                        Rc::new(RefCell::new(Value::Str(
-                            "KeyError".to_string(),
-                        ))),
-                        k_val,
-                    ]))
-                }
-                &Value::Tuple(ref v) | &Value::Vector(ref v) => {
-                    // weird borrow games so we can move k_val later
-                    {
-                        let k_valb = k_val.borrow();
-
-                        match k_valb.deref() {
-                            &Value::Int(ref i) => {
-                                match v.get(*i as usize) {
-                                    Some(v) => return Ok(Rc::clone(v)),
-                                    None => {} // FALLTHROUGH
-                                }
-                            }
-                            _ => {
-                                return type_error!(
-                                    k_valb,
-                                    key.span.clone(),
-                                    "int"
-                                )
-                            }
-                        }
-                    }
-
-                    ok(Value::Tuple(vec![
-                        Rc::new(RefCell::new(Value::Str("err".to_string()))),
-                        Rc::new(RefCell::new(Value::Str(
-                            "KeyError".to_string(),
-                        ))),
-                        k_val,
-                    ]))
-                }
-                _ => type_error!(
-                    c_val,
-                    collection.span.clone(),
-                    "dict",
-                    "tuple",
-                    "vec"
-                ),
-            }
-        }
-
-        ExprKind::IndexSlice {
-            ref collection,
-            ref start,
-            ref end,
-        } => eval_slice(env, collection, start, end),
-
         ExprKind::Lambda {
             ref expr,
             ref free_vars,
@@ -761,59 +607,6 @@ fn exec(env: &mut EvalEnv, s: &Statement) -> Result<(), InternalError> {
                         .map_err(|e| InternalError::new(e, span));
                     res
                 }
-                ExprKind::Index(ref collection, ref key) => {
-                    let c_val = eval_(env, &collection)?;
-                    let k_val = eval_(env, &key)?;
-                    let e_val = eval_(env, &e)?;
-
-                    let mut c_val = c_val.borrow_mut();
-
-                    match c_val.deref_mut() {
-                        &mut Value::Tuple(ref mut v)
-                        | &mut Value::Vector(ref mut v) => {
-                            let k_val = k_val.borrow();
-
-                            return match k_val.deref() {
-                                &Value::Int(ref i) => {
-                                    if 0 <= *i && (*i as usize) < v.len() {
-                                        v[*i as usize] = e_val;
-                                        Ok(())
-                                    } else {
-                                        key_error!(k_val, key.span.clone())
-                                    }
-                                }
-                                _ => {
-                                    type_error!(k_val, key.span.clone(), "int")
-                                }
-                            };
-                        }
-
-                        &mut Value::Dict(ref mut d) => {
-                            type_guard!(
-                                k_val,
-                                key.span.clone(),
-                                "str",
-                                "int",
-                                "float"
-                            );
-
-                            let k_val = k_val.borrow();
-                            d.insert(k_val.deref().clone(), e_val);
-
-                            return Ok(());
-                        }
-
-                        _ => {} // FALLTHROUGH: to please the borrow chk
-                    };
-
-                    type_error!(
-                        c_val,
-                        collection.span.clone(),
-                        "dict",
-                        "tuple",
-                        "vec"
-                    )
-                }
                 _ => unreachable!("Bug in remake - assign to non-lvalue"),
             }
         }
@@ -832,7 +625,7 @@ fn exec(env: &mut EvalEnv, s: &Statement) -> Result<(), InternalError> {
             let v_val = v_val.borrow();
 
             match v_val.deref() {
-                &Value::Tuple(ref v) | &Value::Vector(ref v) => {
+                &Value::Tuple(ref v) => {
                     'FOR_LOOP: for elem in v.iter() {
                         env.bind(variable.clone(), elem.clone());
                         for s in body.iter() {
@@ -881,131 +674,6 @@ fn exec(env: &mut EvalEnv, s: &Statement) -> Result<(), InternalError> {
 //
 // Utils
 //
-
-fn eval_slice(
-    env: &mut EvalEnv,
-    collection: &Expr,
-    start: &Option<Box<Expr>>,
-    end: &Option<Box<Expr>>,
-) -> Result<Rc<RefCell<Value>>, InternalError> {
-    let c_val = eval_(env, collection)?;
-
-    // given an endpoint, return an index that is garenteed to be in range.
-    fn normalize_slice_index(v: &Vec<Rc<RefCell<Value>>>, i: i64) -> usize {
-        let idx = if i < 0 { (v.len() as i64) + i } else { i };
-
-        if idx < 0 {
-            0
-        } else {
-            if idx as usize > v.len() {
-                v.len()
-            } else {
-                idx as usize
-            }
-        }
-    }
-
-    match (start, end) {
-        (&Some(ref start), &Some(ref end)) => {
-            let s_val = eval_(env, start)?;
-            let e_val = eval_(env, end)?;
-
-            let c_val = c_val.borrow();
-            let s_val = s_val.borrow();
-            let e_val = e_val.borrow();
-
-            match (c_val.deref(), s_val.deref(), e_val.deref()) {
-                (
-                    &Value::Vector(ref v),
-                    &Value::Int(ref s),
-                    &Value::Int(ref e),
-                ) => {
-                    let s = normalize_slice_index(v, *s);
-                    let e = normalize_slice_index(v, *e);
-
-                    let mut v_new = Vec::with_capacity((e - s) * 2);
-                    for elem in v[s..e].iter() {
-                        v_new.push(elem.clone());
-                    }
-
-                    ok(Value::Vector(v_new))
-                }
-
-                (&Value::Vector(_), &Value::Int(_), _) => {
-                    type_error!(e_val, end.span.clone(), "int")
-                }
-                (&Value::Vector(_), _, _) => {
-                    type_error!(s_val, start.span.clone(), "int")
-                }
-                _ => type_error!(c_val, collection.span.clone(), "vec"),
-            }
-        }
-        (&Some(ref start), &None) => {
-            let s_val = eval_(env, start)?;
-
-            let c_val = c_val.borrow();
-            let s_val = s_val.borrow();
-
-            match (c_val.deref(), s_val.deref()) {
-                (&Value::Vector(ref v), &Value::Int(ref s)) => {
-                    let s = normalize_slice_index(v, *s);
-                    let e = v.len();
-
-                    let mut v_new = Vec::with_capacity((e - s) * 2);
-                    for elem in v[s..e].iter() {
-                        v_new.push(elem.clone());
-                    }
-
-                    ok(Value::Vector(v_new))
-                }
-
-                (&Value::Vector(_), _) => {
-                    type_error!(s_val, start.span.clone(), "int")
-                }
-                _ => type_error!(c_val, collection.span.clone(), "vec"),
-            }
-        }
-        (&None, &Some(ref end)) => {
-            let e_val = eval_(env, end)?;
-
-            let c_val = c_val.borrow();
-            let e_val = e_val.borrow();
-
-            match (c_val.deref(), e_val.deref()) {
-                (&Value::Vector(ref v), &Value::Int(ref e)) => {
-                    let e = normalize_slice_index(v, *e);
-
-                    let mut v_new = Vec::with_capacity(e * 2);
-                    for elem in v[0..e].iter() {
-                        v_new.push(elem.clone());
-                    }
-
-                    ok(Value::Vector(v_new))
-                }
-
-                (&Value::Vector(_), _) => {
-                    type_error!(e_val, end.span.clone(), "int")
-                }
-                _ => type_error!(c_val, collection.span.clone(), "vec"),
-            }
-        }
-
-        (&None, &None) => {
-            let c_val = c_val.borrow();
-            match c_val.deref() {
-                &Value::Vector(ref v) => {
-                    let mut v_new = Vec::with_capacity(v.len() * 2);
-                    for elem in v.iter() {
-                        v_new.push(elem.clone());
-                    }
-
-                    ok(Value::Vector(v_new))
-                }
-                _ => type_error!(c_val, collection.span.clone(), "vec"),
-            }
-        }
-    }
-}
 
 fn rep_zero_or_more(re: Box<regex_syntax::ast::Ast>, greedy: bool) -> Value {
     Value::Regex(Box::new(regex_syntax::ast::Ast::Repetition(
@@ -1222,192 +890,12 @@ impl fmt::Debug for BuiltIn {
     }
 }
 
-const BUILTINS: [BuiltIn; 7] = [
-    // dict methods
-    BuiltIn {
-        name: "keys",
-        func: remake_keys,
-    },
-    BuiltIn {
-        name: "values",
-        func: remake_values,
-    },
-    BuiltIn {
-        name: "items",
-        func: remake_items,
-    },
-    BuiltIn {
-        name: "extend",
-        func: remake_extend,
-    },
-    BuiltIn {
-        name: "clear",
-        func: remake_clear,
-    },
+const BUILTINS: [BuiltIn; 1] = [
     BuiltIn {
         name: "show",
         func: remake_show,
     },
-    // vec methods
-    BuiltIn {
-        name: "append",
-        func: remake_append,
-    },
 ];
-
-fn remake_keys(
-    args: &[Rc<RefCell<Value>>],
-    apply_span: &Span,
-    arg_spans: &[Span],
-) -> Result<Rc<RefCell<Value>>, InternalError> {
-    debug_assert!(args.len() == arg_spans.len());
-
-    if args.len() != 1 {
-        return arity_error!(1, args.len(), apply_span.clone());
-    }
-
-    let dict_val = args[0].borrow();
-    match dict_val.deref() {
-        &Value::Dict(ref d) => {
-            // Note that we make a new rc-refcell because keys are
-            // immutable within a hashtable.
-            let keys = d.keys()
-                .map(|k| Rc::new(RefCell::new(k.clone())))
-                .collect::<Vec<_>>();
-            ok(Value::Vector(keys))
-        }
-        _ => type_error!(dict_val, arg_spans[0].clone(), "dict"),
-    }
-}
-
-fn remake_values(
-    args: &[Rc<RefCell<Value>>],
-    apply_span: &Span,
-    arg_spans: &[Span],
-) -> Result<Rc<RefCell<Value>>, InternalError> {
-    debug_assert!(args.len() == arg_spans.len());
-
-    if args.len() != 1 {
-        return arity_error!(1, args.len(), apply_span.clone());
-    }
-
-    let dict_val = args[0].borrow();
-    match dict_val.deref() {
-        &Value::Dict(ref d) => {
-            let values = d.values().map(|v| Rc::clone(v)).collect::<Vec<_>>();
-            ok(Value::Vector(values))
-        }
-        _ => type_error!(dict_val, arg_spans[0].clone(), "dict"),
-    }
-}
-
-fn remake_items(
-    args: &[Rc<RefCell<Value>>],
-    apply_span: &Span,
-    arg_spans: &[Span],
-) -> Result<Rc<RefCell<Value>>, InternalError> {
-    debug_assert!(args.len() == arg_spans.len());
-
-    if args.len() != 1 {
-        return arity_error!(1, args.len(), apply_span.clone());
-    }
-
-    let dict_val = args[0].borrow();
-    match dict_val.deref() {
-        &Value::Dict(ref d) => {
-            let items = d.iter()
-                .map(|(k, v)| {
-                    Rc::new(RefCell::new(Value::Tuple(vec![
-                        Rc::new(RefCell::new(k.clone())),
-                        Rc::clone(v),
-                    ])))
-                })
-                .collect::<Vec<_>>();
-            ok(Value::Vector(items))
-        }
-        _ => type_error!(dict_val, arg_spans[0].clone(), "dict"),
-    }
-}
-
-fn remake_clear(
-    args: &[Rc<RefCell<Value>>],
-    apply_span: &Span,
-    arg_spans: &[Span],
-) -> Result<Rc<RefCell<Value>>, InternalError> {
-    debug_assert!(args.len() == arg_spans.len());
-
-    if args.len() != 1 {
-        return arity_error!(1, args.len(), apply_span.clone());
-    }
-
-    // This should always succeed because Remake is single
-    // threaded.
-    let mut dict_val = args[0].borrow_mut();
-    {
-        match dict_val.deref_mut() {
-            &mut Value::Dict(ref mut d) => {
-                d.clear();
-                return ok(Value::Str("ok".to_string()));
-            }
-            _ => {} // FALLTHROUGH
-        }
-    }
-
-    type_error!(dict_val, arg_spans[0].clone(), "dict")
-}
-
-fn remake_extend(
-    args: &[Rc<RefCell<Value>>],
-    apply_span: &Span,
-    arg_spans: &[Span],
-) -> Result<Rc<RefCell<Value>>, InternalError> {
-    debug_assert!(args.len() == arg_spans.len());
-
-    if args.len() != 2 {
-        return arity_error!(2, args.len(), apply_span.clone());
-    }
-
-    // This should always succeed because Remake is single
-    // threaded.
-    let mut dict_val = args[0].borrow_mut();
-    {
-        match dict_val.deref_mut() {
-            &mut Value::Dict(ref mut d) => {
-                let ex_val = args[1].borrow();
-                match ex_val.deref() {
-                    &Value::Dict(ref ex) => {
-                        for (k, v) in ex.iter() {
-                            d.insert(k.clone(), Rc::clone(v));
-                        }
-
-                        return ok(Value::Str("ok".to_string()));
-                    }
-                    _ => {} // FALLTHROUGH
-                }
-
-                return type_error!(ex_val, arg_spans[1].clone(), "dict");
-            }
-            &mut Value::Vector(ref mut v) => {
-                let ex_val = args[1].borrow();
-                match ex_val.deref() {
-                    &Value::Vector(ref ex) => {
-                        for elem in ex.iter() {
-                            v.push(Rc::clone(elem));
-                        }
-
-                        return ok(Value::Str("ok".to_string()));
-                    }
-                    _ => {} // FALLTHROUGH
-                }
-
-                return type_error!(ex_val, arg_spans[1].clone(), "vec");
-            }
-            _ => {} // FALLTHROUGH
-        }
-    }
-
-    type_error!(dict_val, arg_spans[0].clone(), "dict", "vec")
-}
 
 fn remake_show(
     args: &[Rc<RefCell<Value>>],
@@ -1424,33 +912,6 @@ fn remake_show(
     // threaded.
     let val = args[0].borrow();
     ok(Value::Str(val.to_string()))
-}
-
-fn remake_append(
-    args: &[Rc<RefCell<Value>>],
-    apply_span: &Span,
-    arg_spans: &[Span],
-) -> Result<Rc<RefCell<Value>>, InternalError> {
-    debug_assert!(args.len() == arg_spans.len());
-
-    if args.len() != 2 {
-        return arity_error!(2, args.len(), apply_span.clone());
-    }
-
-    // This should always succeed because Remake is single
-    // threaded.
-    let mut dict_val = args[0].borrow_mut();
-    {
-        match dict_val.deref_mut() {
-            &mut Value::Vector(ref mut v) => {
-                v.push(Rc::clone(&args[1]));
-                return ok(Value::Str("ok".to_string()));
-            }
-            _ => {} // FALLTHROUGH
-        }
-    }
-
-    type_error!(dict_val, arg_spans[0].clone(), "vec")
 }
 
 /// We don't have to spend any effort assigning indicies to groups because
@@ -1687,247 +1148,13 @@ mod tests {
     );
 
     //
-    // dicts
-    //
-
-    eval_to!(dict_5_, " { 1: 2, 6: 8 }[1] ", Value::Int(2));
-
-    eval_to!(dict_6_, " { 1: 4 }[3][0] ", Value::Str("err".to_string()));
-
-    eval_to!(
-        dict_7_,
-        r#"
-    let x = {0: 1, "how": "exciting" };
-    x["how"] = "exciting!";
-    x["how"]
-    "#,
-        Value::Str("exciting!".to_string())
-    );
-
-    eval_to!(
-        dict_8_,
-        r#"
-    let x = {0: 1, "hello": "world" };
-    x[6] = 5;
-    x[6]
-    "#,
-        Value::Int(5)
-    );
-
-
-    eval_to!(dict_11_, " { 6.9: 8, 1: 2 }[6.9] ", Value::Int(8));
-
-    eval_to!(dict_12_, r#" { "hi": 8, 1: 2 }["hi"] "#, Value::Int(8));
-
-    eval_to!(
-        dict_13_,
-        r#"
-        let ht = {};
-        ht["hi"] = 5;
-        ht["hi"]
-        "#,
-        Value::Int(5)
-    );
-
-    eval_fail!(
-        dict_14_,
-        r#"
-        let ht = {};
-        ht[{3:4}] = 5;
-        ht
-        "#,
-        "TypeError"
-    );
-    eval_fail!(
-        dict_15_,
-        r#"
-        let ht = {};
-        ht[ [5, 6, 7] ] = 5;
-        ht
-        "#,
-        "TypeError"
-    );
-
-    eval_fail!(dict_22_, r#" keys() "#, "ArityError");
-    eval_fail!(dict_23_, r#" keys(1, 2) "#, "ArityError");
-
-    eval_fail!(dict_24_, r#" items() "#, "ArityError");
-    eval_fail!(dict_25_, r#" items(1, 2) "#, "ArityError");
-
-    eval_fail!(dict_26_, r#" values() "#, "ArityError");
-    eval_fail!(dict_27_, r#" values(1, 2) "#, "ArityError");
-
-    eval_fail!(dict_28_, r#" extend(1) "#, "ArityError");
-    eval_fail!(dict_29_, r#" extend(1, 3, 2) "#, "ArityError");
-
-    eval_fail!(dict_31_, r#" clear() "#, "ArityError");
-    eval_fail!(dict_32_, r#" clear(1, 2) "#, "ArityError");
-
-    eval_to!(
-        dict_33_,
-        r#"
-        let d = { "how": 1 };
-        d[{
-            clear(d);
-            d[1] = "x";
-            d["x"] = "y";
-            d[1]
-        }]
-         "#,
-        Value::Str("y".to_string())
-    );
-
-    eval_to!(
-        dict_34_,
-        r#"
-        let d = { "how": 1 };
-        show(d)
-        "#,
-        Value::Str(r#"{ "how": 1 }"#.to_string())
-    );
-
-    // TODO(ethan): tuples as keys
-
-    //
     // tuples
     //
-
-    eval_to!(tuple_1_, " (1, 2)[0] ", Value::Int(1));
-    eval_to!(tuple_2_, " (1, 2)[2][0] ", Value::Str("err".to_string()));
-
-    eval_to!(
-        tuple_3_,
-        " (1, 2)[2][1] ",
-        Value::Str("KeyError".to_string())
-    );
-    eval_to!(tuple_4_, " (1, 2)[2][2] ", Value::Int(2));
-
-    eval_to!(
-        tuple_5_,
-        r#"
-    let x = (1, 2);
-    x[0] = 5;
-    x[0]
-    "#,
-        Value::Int(5)
-    );
-
-    eval_fail!(
-        tuple_6_,
-        r#"
-    let x = (1, 2);
-    x[6] = 5;
-    x[0]
-    "#,
-        "KeyError"
-    );
-
-    eval_fail!(tuple_7_, r#" (1, 2)["bad key"] "#, "TypeError");
-
-    eval_fail!(
-        tuple_8_,
-        r#"
-    let x = (1, 2);
-    x["bad key"] = 5;
-    x[0]
-    "#,
-        "TypeError"
-    );
 
     eval_to!(
         tuple_9_,
         r#" show((1, 2)) "#,
         Value::Str("(1, 2)".to_string())
-    );
-
-    //
-    // vectors
-    //
-
-    eval_to!(vec_1_, " [1, 2][0] ", Value::Int(1));
-    eval_to!(vec_2_, " [1, 2][2][0] ", Value::Str("err".to_string()));
-    eval_to!(vec_3_, " [1, 2][2][1] ", Value::Str("KeyError".to_string()));
-    eval_to!(vec_4_, " [1, 2][2][2] ", Value::Int(2));
-
-    eval_to!(vec_5_, " [1, 2, 3][0:1][0] ", Value::Int(1));
-    eval_to!(
-        vec_6_,
-        " [1, 2, 3][0:1][1][1] ",
-        Value::Str("KeyError".to_string())
-    );
-
-    eval_to!(vec_7_, " [1, 2, 3][0:][2] ", Value::Int(3));
-    eval_to!(vec_8_, " [1, 2, 3][1:][0] ", Value::Int(2));
-    eval_to!(
-        vec_9_,
-        " [1, 2, 3][0:-1][2][1] ",
-        Value::Str("KeyError".to_string())
-    );
-    eval_to!(
-        vec_10_,
-        " [1, 2, 3][1:-1][1][1] ",
-        Value::Str("KeyError".to_string())
-    );
-    eval_to!(
-        vec_11_,
-        " [1, 2, 3][1:-1][1][1] ",
-        Value::Str("KeyError".to_string())
-    );
-    eval_to!(vec_12_, " [1, 2, 3][1:-1][0] ", Value::Int(2));
-
-    eval_to!(vec_13_, " [1, 2, 3][:-1][0] ", Value::Int(1));
-    eval_to!(
-        vec_14_,
-        " [1, 2, 3][:-1][2][1] ",
-        Value::Str("KeyError".to_string())
-    );
-    eval_to!(vec_15_, " [1, 2, 3][:][2] ", Value::Int(3));
-    eval_to!(vec_16_, " [1, 2, 3][:][0] ", Value::Int(1));
-
-    eval_to!(
-        vec_17_,
-        r#"
-    let x = [1, 2];
-    x[0] = 5;
-    x[0]
-    "#,
-        Value::Int(5)
-    );
-
-    eval_fail!(
-        vec_18_,
-        r#"
-    let x = [1, 2];
-    x[6] = 5;
-    x[0]
-    "#,
-        "KeyError"
-    );
-
-    eval_fail!(
-        vec_19_,
-        r#"
-    let x = [1, 2];
-    x["bad key"] = 5;
-    x[0]
-    "#,
-        "TypeError"
-    );
-
-    eval_to!(vec_20_, " [1, 2, 3][-2:][0] ", Value::Int(2));
-
-    eval_fail!(vec_21_, r#" [1, 2]["bad key":"bad key"] "#, "TypeError");
-    eval_fail!(vec_22_, r#" [1, 2]["bad key":] "#, "TypeError");
-    eval_fail!(vec_23_, r#" [1, 2][:"bad key"] "#, "TypeError");
-    eval_fail!(vec_24_, r#" [1, 2][1:"bad key"] "#, "TypeError");
-    eval_fail!(vec_25_, r#" (3, 4)[1:2] "#, "TypeError");
-
-    eval_fail!(vec_26_, r#" [1, 2]["bad key"] "#, "TypeError");
-
-    eval_to!(
-        vec_27_,
-        r#" show([1, 2]) "#,
-        Value::Str("[1, 2]".to_string())
     );
 
     //
@@ -2041,42 +1268,6 @@ mod tests {
     );
 
     //
-    // Rc Borrow Tests (also see dict_33_)
-    //
-
-    eval_to!(
-        rc_borrow_1_,
-        r#"
-        let d = [1];
-        d[{
-            append(d, "y");
-            d[0]
-        }]
-         "#,
-        Value::Str("y".to_string())
-    );
-
-    eval_to!(
-        rc_borrow_2_,
-        r#"
-        let d = (1, "y");
-        d[ d[0] ]
-        "#,
-        Value::Str("y".to_string())
-    );
-
-    /* TODO
-    eval_fail!(
-        rc_borrow_3_,
-        r#"
-        let d = 1;
-        d <+> { d[0] = 2; d[0] }
-        "#,
-        "TypeError"
-    );
-    */
-
-    //
     // Misc
     //
 
@@ -2094,6 +1285,4 @@ mod tests {
     );
 
     eval_fail!(cap_1_, r#" cap 3.5 as foo "#, "TypeError");
-
-    eval_fail!(bad_index_1_, r#" 3[9] "#, "TypeError");
 }

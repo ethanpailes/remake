@@ -31,8 +31,6 @@ pub enum Token<'input> {
     // Operators
     OpenParen,
     CloseParen,
-    OpenBracket,
-    CloseBracket,
     OpenCurly,
     LazyCloseCurly,
     CloseCurly,
@@ -48,16 +46,6 @@ pub enum Token<'input> {
     LazyQuestion,
     Semi,
     Colon,
-
-    And,
-    Or,
-    DoubleEq,
-    Ne,
-    Le,
-    Ge,
-    Lt,
-    Gt,
-    Bang,
 
     Minus,
     Add,
@@ -104,8 +92,6 @@ impl<'input> fmt::Display for Token<'input> {
             // Operators
             &Token::OpenParen => write!(f, "("),
             &Token::CloseParen => write!(f, ")"),
-            &Token::OpenBracket => write!(f, "["),
-            &Token::CloseBracket => write!(f, "]"),
             &Token::OpenCurly => write!(f, "{{"),
             &Token::LazyCloseCurly => write!(f, "}}?"),
             &Token::CloseCurly => write!(f, "}}"),
@@ -120,15 +106,6 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::Question => write!(f, "?"),
             &Token::LazyQuestion => write!(f, "??"),
             &Token::Semi => write!(f, ";"),
-            &Token::And => write!(f, "&&"),
-            &Token::Or => write!(f, "||"),
-            &Token::DoubleEq => write!(f, "=="),
-            &Token::Ne => write!(f, "!="),
-            &Token::Le => write!(f, "<="),
-            &Token::Ge => write!(f, ">="),
-            &Token::Lt => write!(f, "<"),
-            &Token::Gt => write!(f, ">"),
-            &Token::Bang => write!(f, "!"),
             &Token::Colon => write!(f, ":"),
 
             &Token::Minus => write!(f, "-"),
@@ -569,8 +546,6 @@ impl<'input> Lexer<'input> {
                 match m.as_str() {
                     "(" => Ok((Token::OpenParen, end)),
                     ")" => Ok((Token::CloseParen, end)),
-                    "[" => Ok((Token::OpenBracket, end)),
-                    "]" => Ok((Token::CloseBracket, end)),
 
                     "{" => Ok((Token::OpenCurly, end)),
                     "}?" => Ok((Token::LazyCloseCurly, end)),
@@ -588,19 +563,9 @@ impl<'input> Lexer<'input> {
                     "|" => Ok((Token::Pipe, end)),
                     "." => Ok((Token::Dot, end)),
                     "=" => Ok((Token::Equals, end)),
-                    "!" => Ok((Token::Bang, end)),
 
                     "?" => Ok((Token::Question, end)),
                     "??" => Ok((Token::LazyQuestion, end)),
-
-                    "==" => Ok((Token::DoubleEq, end)),
-                    "&&" => Ok((Token::And, end)),
-                    "||" => Ok((Token::Or, end)),
-                    "<" => Ok((Token::Lt, end)),
-                    ">" => Ok((Token::Gt, end)),
-                    "<=" => Ok((Token::Le, end)),
-                    ">=" => Ok((Token::Ge, end)),
-                    "!=" => Ok((Token::Ne, end)),
 
                     "-" => Ok((Token::Minus, end)),
                     "%" => Ok((Token::Percent, end)),
@@ -708,16 +673,6 @@ mod tests {
             (&Token::As, &Token::As) => true,
             (&Token::Cap, &Token::Cap) => true,
             (&Token::Let, &Token::Let) => true,
-
-            (&Token::And, &Token::And) => true,
-            (&Token::Or, &Token::Or) => true,
-            (&Token::DoubleEq, &Token::DoubleEq) => true,
-            (&Token::Ne, &Token::Ne) => true,
-            (&Token::Le, &Token::Le) => true,
-            (&Token::Ge, &Token::Ge) => true,
-            (&Token::Lt, &Token::Lt) => true,
-            (&Token::Gt, &Token::Gt) => true,
-            (&Token::Bang, &Token::Bang) => true,
 
             // stupid fixed-epsilon test
             (&Token::FloatLit(ref l), &Token::FloatLit(ref r)) => {
@@ -1078,15 +1033,6 @@ mod tests {
     tok_round_trip!(trt_19_, "*?");
     tok_round_trip!(trt_20_, "|");
     tok_round_trip!(trt_21_, ";");
-    tok_round_trip!(trt_24_, "&&");
-    tok_round_trip!(trt_25_, "||");
-    tok_round_trip!(trt_26_, "==");
-    tok_round_trip!(trt_27_, "!=");
-    tok_round_trip!(trt_28_, "<=");
-    tok_round_trip!(trt_29_, ">=");
-    tok_round_trip!(trt_30_, "<");
-    tok_round_trip!(trt_31_, ">");
-    tok_round_trip!(trt_32_, "!");
     tok_round_trip!(trt_33_, "-");
     tok_round_trip!(trt_35_, "%");
     tok_round_trip!(trt_36_, "</>");

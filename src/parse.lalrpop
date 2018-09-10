@@ -32,9 +32,6 @@ extern {
         "(" => lex::Token::OpenParen,
         ")" => lex::Token::CloseParen,
 
-        "[" => lex::Token::OpenBracket,
-        "]" => lex::Token::CloseBracket,
-
         "{" => lex::Token::OpenCurly,
         "}" => lex::Token::CloseCurly,
         "}?" => lex::Token::LazyCloseCurly,
@@ -53,15 +50,6 @@ extern {
         "?" => lex::Token::Question,
         "??" => lex::Token::LazyQuestion,
 
-        "==" => lex::Token::DoubleEq,
-        "!=" => lex::Token::Ne,
-        "<" => lex::Token::Lt,
-        ">" => lex::Token::Gt,
-        "<=" => lex::Token::Le,
-        ">=" => lex::Token::Ge,
-        "&&" => lex::Token::And,
-        "||" => lex::Token::Or,
-        "!" => lex::Token::Bang,
         ":" => lex::Token::Colon,
 
         "<+>" => lex::Token::Add,
@@ -108,35 +96,6 @@ Expr0: Box<Expr> = {
 ExprKind0: ExprKind = {
     <e1:Expr0> "." <e2:Expr1> => ExprKind::BinOp(e1, BOp::Concat, e2),
     <e1:Expr0> "|" <e2:Expr1> => ExprKind::BinOp(e1, BOp::Alt, e2),
-
-    <e1:Expr0> "[" <e2:Expr0> "]" => ExprKind::Index(e1, e2),
-    <e1:Expr0> "[" <e2:Expr0> ":" <e3:Expr0> "]" =>
-        ExprKind::IndexSlice {
-            collection: e1,
-            start: Some(e2),
-            end: Some(e3),
-        },
-
-    <e1:Expr0> "[" <e2:Expr0> ":" "]" =>
-        ExprKind::IndexSlice {
-            collection: e1,
-            start: Some(e2),
-            end: None,
-        },
-
-    <e1:Expr0> "[" ":" <e2:Expr0> "]" =>
-        ExprKind::IndexSlice {
-            collection: e1,
-            start: None,
-            end: Some(e2),
-        },
-
-    <e1:Expr0> "[" ":" "]" =>
-        ExprKind::IndexSlice {
-            collection: e1,
-            start: None,
-            end: None,
-        },
 
     ExprKind1
 };
@@ -239,9 +198,7 @@ ExprKind6: ExprKind = {
     <var:"identifier"> => ExprKind::Var(var.to_string()),
     <float:"float"> => ExprKind::FloatLiteral(float),
     <str:"str"> => ExprKind::StringLiteral(str),
-    "{" <entries: Comma<DictEntry>> "}" => ExprKind::DictLiteral(entries),
     "(" <entries: Comma1<Expr0>> ")" => ExprKind::TupleLiteral(entries),
-    "[" <entries: Comma<Expr0>> "]" => ExprKind::VectorLiteral(entries),
 
     "fn" "(" <args: Comma<"identifier">> ")" "{" <body: BlockBody> "}" =>
         util::construct_lambda(args, body),
@@ -262,11 +219,7 @@ LValue: Box<Expr> = {
 };
 LValueKind: ExprKind = {
     <var:"identifier"> => ExprKind::Var(var.to_string()),
-    <e1:Expr0> "[" <e2:Expr0> "]" => ExprKind::Index(e1, e2),
 };
-
-DictEntry: (Box<Expr>, Box<Expr>) =
-    <key: Expr0> ":" <value: Expr0> => (key, value);
 
 RegexLiteral: Box<regex_syntax::ast::Ast> = {
 

@@ -50,19 +50,11 @@ pub enum ExprKind {
     Capture(Box<Expr>, Option<String>),
     Block(Vec<Statement>, Box<Expr>),
     Var(String),
-    Index(Box<Expr>, Box<Expr>),
-    IndexSlice {
-        collection: Box<Expr>,
-        start: Option<Box<Expr>>,
-        end: Option<Box<Expr>>,
-    },
     RegexLiteral(Box<regex_syntax::ast::Ast>),
     IntLiteral(i64),
     FloatLiteral(f64),
     StringLiteral(String),
-    DictLiteral(Vec<(Box<Expr>, Box<Expr>)>),
     TupleLiteral(Vec<Box<Expr>>),
-    VectorLiteral(Vec<Box<Expr>>),
     Lambda {
         expr: Rc<Lambda>,
         // We pre-compute the free variables so that we don't have to
@@ -272,38 +264,12 @@ impl<'expr> HeapVisitor<'expr> {
                     self.stack.push(Frame::PreStmt(&s));
                 }
             }
-            &ExprKind::Index(ref c, ref i) => {
-                self.stack.push(Frame::PreExpr(&i));
-                self.stack.push(Frame::PreExpr(&c));
-            }
-            &ExprKind::IndexSlice {
-                ref collection,
-                ref start,
-                ref end,
-            } => {
-                match end {
-                    &Some(ref e) => self.stack.push(Frame::PreExpr(&e)),
-                    &None => {}
-                }
-                match start {
-                    &Some(ref s) => self.stack.push(Frame::PreExpr(&s)),
-                    &None => {}
-                }
-                self.stack.push(Frame::PreExpr(&collection));
-            }
 
             &ExprKind::Lambda {
                 ref expr,
                 free_vars: _,
             } => {
                 self.stack.push(Frame::PreExpr(&expr.body));
-            }
-
-            &ExprKind::DictLiteral(ref pairs) => {
-                for &(ref k, ref v) in pairs.iter().rev() {
-                    self.stack.push(Frame::PreExpr(&v));
-                    self.stack.push(Frame::PreExpr(&k));
-                }
             }
 
             &ExprKind::Apply { ref func, ref args } => {
@@ -313,8 +279,7 @@ impl<'expr> HeapVisitor<'expr> {
                 self.stack.push(Frame::PreExpr(&func));
             }
 
-            &ExprKind::VectorLiteral(ref es)
-            | &ExprKind::TupleLiteral(ref es) => {
+            &ExprKind::TupleLiteral(ref es) => {
                 for e in es.iter().rev() {
                     self.stack.push(Frame::PreExpr(&e));
                 }
