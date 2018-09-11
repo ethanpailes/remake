@@ -52,9 +52,6 @@ pub enum ExprKind {
     Var(String),
     RegexLiteral(Box<regex_syntax::ast::Ast>),
     IntLiteral(i64),
-    FloatLiteral(f64),
-    StringLiteral(String),
-    TupleLiteral(Vec<Box<Expr>>),
     Lambda {
         expr: Rc<Lambda>,
         // We pre-compute the free variables so that we don't have to
@@ -272,17 +269,9 @@ impl<'expr> HeapVisitor<'expr> {
                 self.stack.push(Frame::PreExpr(&func));
             }
 
-            &ExprKind::TupleLiteral(ref es) => {
-                for e in es.iter().rev() {
-                    self.stack.push(Frame::PreExpr(&e));
-                }
-            }
-
             &ExprKind::Var(_)
             | &ExprKind::RegexLiteral(_)
             | &ExprKind::IntLiteral(_)
-            | &ExprKind::FloatLiteral(_)
-            | &ExprKind::StringLiteral(_)
             | &ExprKind::ExprPoison => {}
         }
     }

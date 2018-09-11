@@ -25,8 +25,6 @@ extern {
         "regex literal" => lex::Token::RegexLit(<String>),
         "raw regex literal" => lex::Token::RawRegexLit(<&'input str>),
         "int" => lex::Token::IntLit(<i64>),
-        "float" => lex::Token::FloatLit(<f64>),
-        "str" => lex::Token::StringLit(<String>),
         "identifier" => lex::Token::Id(<&'input str>),
 
         "(" => lex::Token::OpenParen,
@@ -188,9 +186,6 @@ ExprKind6: ExprKind = {
     <r:RegexLiteral> => ExprKind::RegexLiteral(r),
     <int:"int"> => ExprKind::IntLiteral(int),
     <var:"identifier"> => ExprKind::Var(var.to_string()),
-    <float:"float"> => ExprKind::FloatLiteral(float),
-    <str:"str"> => ExprKind::StringLiteral(str),
-    "(" <entries: Comma1<Expr0>> ")" => ExprKind::TupleLiteral(entries),
 
     "fn" "(" <args: Comma<"identifier">> ")" "{" <body: BlockBody> "}" =>
         util::construct_lambda(args, body),

@@ -9,7 +9,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
-use std::hash::{Hash, Hasher};
 use std::ops::{Deref};
 use std::rc::Rc;
 
@@ -31,9 +30,6 @@ use util::POISON_SPAN;
 pub enum Value {
     Regex(Box<regex_syntax::ast::Ast>),
     Int(i64),
-    Float(f64),
-    Str(String),
-    Tuple(Vec<Rc<RefCell<Value>>>),
     Closure {
         env: Env,
         lambda: Rc<ast::Lambda>,
@@ -52,9 +48,6 @@ impl Value {
         match self {
             &Value::Regex(_) => "regex",
             &Value::Int(_) => "int",
-            &Value::Float(_) => "float",
-            &Value::Str(_) => "str",
-            &Value::Tuple(_) => "tuple",
             &Value::Closure { env: _, lambda: _ } => "closure",
 
             // User's should not have to special case based on the
@@ -73,8 +66,6 @@ impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             &Value::Int(ref i) => write!(f, "{}", i)?,
-            &Value::Float(ref x) => write!(f, "{}", x)?,
-            &Value::Str(ref s) => write!(f, "{:?}", s)?,
             &Value::Closure { env: _, ref lambda } => {
                 write!(
                     f,
@@ -87,63 +78,12 @@ impl fmt::Display for Value {
             }
 
             &Value::Regex(_) => write!(f, "TODO show regex")?,
-            &Value::Tuple(ref tup) => {
-                write!(f, "(")?;
-                for (i, elem) in tup.iter().enumerate() {
-                    let elem = elem.borrow();
-                    write!(f, "{}", elem.deref())?;
-                    if i < tup.len() - 1 {
-                        write!(f, ", ")?;
-                    }
-                }
-                write!(f, ")")?;
-            }
             &Value::Undefined => unreachable!("Bug in remake - undefined disp"),
         }
 
         Ok(())
     }
 }
-
-impl Hash for Value {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            &Value::Int(ref i) => i.hash(state),
-            &Value::Float(ref f) => {
-                // Allowing floats as keys because Worse is Better.
-                // When performing a lookup with nan as a key we will
-                // throw a TypeError just like python does.
-                //
-                // Argument for saftey: f64 always has 8 bytes.
-                let bytes: [u8; 8] = unsafe { ::std::mem::transmute(*f) };
-                bytes.hash(state);
-            }
-            &Value::Str(ref s) => s.hash(state),
-
-            val => unreachable!("Bug in remake - hash({})", val.type_of()),
-        }
-    }
-}
-
-impl PartialEq for Value {
-    fn eq(&self, other: &Value) -> bool {
-        match (self, other) {
-            (&Value::Int(ref i1), &Value::Int(ref i2)) => *i1 == *i2,
-            (&Value::Float(ref f1), &Value::Float(ref f2)) => {
-                // Argument for saftey: f64 always has 8 bytes
-                let bytes1: [u8; 8] = unsafe { ::std::mem::transmute(*f1) };
-                let bytes2: [u8; 8] = unsafe { ::std::mem::transmute(*f2) };
-                bytes1 == bytes2
-            }
-            (&Value::Str(ref s1), &Value::Str(ref s2)) => *s1 == *s2,
-
-            _ => unreachable!("Bug in remake - bogus eq"),
-        }
-    }
-}
-
-// bogus Eq implimentation to facilitate our dict implimentation.
-impl Eq for Value {}
 
 pub fn eval(expr: &Expr) -> Result<Value, InternalError> {
     let res;
@@ -223,23 +163,11 @@ fn eval_(
     match expr.kind {
         ExprKind::RegexLiteral(ref r) => ok(Value::Regex(r.clone())),
         ExprKind::IntLiteral(ref i) => ok(Value::Int(i.clone())),
-        ExprKind::FloatLiteral(ref f) => ok(Value::Float(f.clone())),
-        ExprKind::StringLiteral(ref s) => ok(Value::Str(s.clone())),
-        ExprKind::TupleLiteral(ref es) => {
-            debug_assert!(es.len() != 0);
-            let mut vs = Vec::with_capacity(es.len());
-
-            for v_expr in es.iter() {
-                vs.push(eval_(env, &v_expr)?);
-            }
-
-            ok(Value::Tuple(vs))
-        }
 
         ExprKind::BinOp(ref l_expr, ref op, ref r_expr) => match op {
             &ast::BOp::Concat => {
                 let l_val = eval_(env, l_expr)?;
-                type_guard!(l_val, l_expr.span.clone(), "regex", "str");
+                type_guard!(l_val, l_expr.span.clone(), "regex");
                 let r_val = eval_(env, r_expr)?;
 
                 let l_val = l_val.borrow();
@@ -254,16 +182,6 @@ fn eval_(
                     }
                     (&Value::Regex(_), _) => {
                         type_error!(r_val, r_expr.span.clone(), "regex")
-                    }
-
-                    (&Value::Str(ref l), &Value::Str(ref r)) => {
-                        let mut s = String::with_capacity(l.len() + r.len());
-                        s.push_str(l);
-                        s.push_str(r);
-                        ok(Value::Str(s))
-                    }
-                    (&Value::Str(_), _) => {
-                        type_error!(r_val, r_expr.span.clone(), "str")
                     }
 
                     _ => unreachable!("Bug in remake - concat."),
@@ -306,13 +224,6 @@ fn eval_(
                         type_error!(r_val, r_expr.span.clone(), "int")
                     }
 
-                    (&Value::Float(ref l), &Value::Float(ref r)) => {
-                        ok(Value::Float(*l + *r))
-                    }
-                    (&Value::Float(_), _) => {
-                        type_error!(r_val, r_expr.span.clone(), "float")
-                    }
-
                     _ => unreachable!("Bug in remake - plus"),
                 }
             }
@@ -330,13 +241,6 @@ fn eval_(
                     }
                     (&Value::Int(_), _) => {
                         type_error!(r_val, r_expr.span.clone(), "int")
-                    }
-
-                    (&Value::Float(ref l), &Value::Float(ref r)) => {
-                        ok(Value::Float(*l - *r))
-                    }
-                    (&Value::Float(_), _) => {
-                        type_error!(r_val, r_expr.span.clone(), "float")
                     }
 
                     _ => unreachable!("Bug in remake - minus"),
@@ -366,21 +270,6 @@ fn eval_(
                         type_error!(r_val, r_expr.span.clone(), "int")
                     }
 
-                    (&Value::Float(ref l), &Value::Float(ref r)) => {
-                        if *r == 0.0 {
-                            return Err(InternalError::new(
-                                ErrorKind::ZeroDivisionError {
-                                    neum: format!("{}", l),
-                                },
-                                expr.span.clone(),
-                            ));
-                        }
-                        ok(Value::Float(*l / *r))
-                    }
-                    (&Value::Float(_), _) => {
-                        type_error!(r_val, r_expr.span.clone(), "float")
-                    }
-
                     _ => unreachable!("Bug in remake - div"),
                 }
             }
@@ -398,13 +287,6 @@ fn eval_(
                     }
                     (&Value::Int(_), _) => {
                         type_error!(r_val, r_expr.span.clone(), "int")
-                    }
-
-                    (&Value::Float(ref l), &Value::Float(ref r)) => {
-                        ok(Value::Float((*l) * (*r)))
-                    }
-                    (&Value::Float(_), _) => {
-                        type_error!(r_val, r_expr.span.clone(), "float")
                     }
 
                     _ => unreachable!("Bug in remake - times"),
@@ -426,13 +308,6 @@ fn eval_(
                         type_error!(r_val, r_expr.span.clone(), "int")
                     }
 
-                    (&Value::Float(ref l), &Value::Float(ref r)) => {
-                        ok(Value::Float(*l % *r))
-                    }
-                    (&Value::Float(_), _) => {
-                        type_error!(r_val, r_expr.span.clone(), "float")
-                    }
-
                     _ => unreachable!("Bug in remake - mod"),
                 }
             }
@@ -445,8 +320,7 @@ fn eval_(
             match op {
                 &ast::UOp::Neg => match e_val.deref() {
                     &Value::Int(ref i) => ok(Value::Int(-*i)),
-                    &Value::Float(ref f) => ok(Value::Float(-*f)),
-                    _ => type_error!(e_val, e.span.clone(), "int", "float"),
+                    _ => type_error!(e_val, e.span.clone(), "int"),
                 },
                 &ast::UOp::RepeatZeroOrMore(ref greedy) => {
                     match e_val.deref() {
@@ -819,9 +693,6 @@ impl CallFrame {
 //
 //                   Initial Basis & Standard Library
 //
-// TODO(ethan): once you have internet again, figure out how to reuse
-//              the error macros, and move this to its own module.
-//
 /////////////////////////////////////////////////////////////////////////////
 
 #[derive(Clone)]
@@ -838,29 +709,7 @@ impl fmt::Debug for BuiltIn {
     }
 }
 
-const BUILTINS: [BuiltIn; 1] = [
-    BuiltIn {
-        name: "show",
-        func: remake_show,
-    },
-];
-
-fn remake_show(
-    args: &[Rc<RefCell<Value>>],
-    apply_span: &Span,
-    arg_spans: &[Span],
-) -> Result<Rc<RefCell<Value>>, InternalError> {
-    debug_assert!(args.len() == arg_spans.len());
-
-    if args.len() != 1 {
-        return arity_error!(1, args.len(), apply_span.clone());
-    }
-
-    // This should always succeed because Remake is single
-    // threaded.
-    let val = args[0].borrow();
-    ok(Value::Str(val.to_string()))
-}
+const BUILTINS: [BuiltIn; 0] = [];
 
 /// We don't have to spend any effort assigning indicies to groups because
 /// we are going to pretty-print the AST and have regex just parse it.
@@ -885,12 +734,6 @@ mod tests {
         match (lhs, rhs) {
             (&Value::Regex(ref l), &Value::Regex(ref r)) => *l == *r,
             (&Value::Int(ref l), &Value::Int(ref r)) => *l == *r,
-            (&Value::Str(ref l), &Value::Str(ref r)) => *l == *r,
-
-            // stupid fixed-epsilon test
-            (&Value::Float(ref l), &Value::Float(ref r)) => {
-                (*l - *r).abs() < 0.0000001
-            }
 
             (_, _) => false,
         }
@@ -974,72 +817,23 @@ mod tests {
     eval_to!(basic_int_1_, " 5", Value::Int(5));
     eval_to!(basic_int_2_, " 8  ", Value::Int(8));
 
-    eval_to!(basic_float_1_, " 5.0   ", Value::Float(5.0));
-    eval_to!(basic_float_2_, " 5.9", Value::Float(5.9));
-
-    eval_fail!(basic_float_3_, " 5 .9");
-
-    eval_to!(basic_str_1_, " \"hello\"", Value::Str("hello".to_string()));
-    eval_to!(basic_str_2_, " \"\" ", Value::Str("".to_string()));
-
-    eval_to!(
-        str_1_,
-        " \"hello \" . \"world\"",
-        Value::Str("hello world".to_string())
-    );
-
-    eval_fail!(str_2_, " \"hello \" . 'sup' ", "TypeError");
-    eval_fail!(str_3_, " 'regex' . \"str\" ", "TypeError");
-
     //
     // Arith Ops
     //
 
     eval_to!(arith_1_, " 1 <+> 2 ", Value::Int(3));
-    eval_to!(arith_2_, " 1 - 2 ", Value::Int(-1));
+    eval_to!(arith_2_, " 1 <-> 2 ", Value::Int(-1));
     eval_to!(arith_3_, " 1 </> 2 ", Value::Int(0));
-    eval_to!(arith_4_, " 3 % 2 ", Value::Int(1));
+    eval_to!(arith_4_, " 3 <%> 2 ", Value::Int(1));
     eval_to!(arith_5_, " 1 <*> 2 ", Value::Int(2));
 
-    eval_to!(arith_6_, " 1.0 <+> 2.0 ", Value::Float(3.0));
-    eval_to!(arith_7_, " 1.0 - 2.0 ", Value::Float(-1.0));
-    eval_to!(arith_8_, " 1.0 </> 2.0 ", Value::Float(0.5));
-    eval_to!(arith_9_, " 3.0 % 2.0 ", Value::Float(1.0));
-    eval_to!(arith_10_, " 1.0 <*> 2.0 ", Value::Float(2.0));
+    eval_to!(arith_17_, " <-> 2 ", Value::Int(-2));
 
-    eval_fail!(arith_11_, " 1 <+> 2.0 ", "TypeError");
-    eval_fail!(arith_12_, " 1.0 - 2 ", "TypeError");
-    eval_fail!(arith_13_, " 1 </> 2.0 ", "TypeError");
-    eval_fail!(arith_14_, " 3 % 2.0 ", "TypeError");
-    eval_fail!(arith_15_, " 1.0 <*> 2 ", "TypeError");
-    eval_fail!(arith_16_, " \"str\" <+> 2 ", "TypeError");
-
-    eval_to!(arith_17_, " -2 ", Value::Int(-2));
-    eval_to!(arith_18_, " -2.0 ", Value::Float(-2.0));
-
-    eval_fail!(arith_19_, " /re/ <+> 2.0 ", "TypeError");
-    eval_fail!(arith_20_, " /re/ - 2 ", "TypeError");
-    eval_fail!(arith_21_, " /re/ </> 2.0 ", "TypeError");
-    eval_fail!(arith_22_, " 're' % 2.0 ", "TypeError");
+    eval_fail!(arith_20_, " /re/ <-> 2 ", "TypeError");
     eval_fail!(arith_23_, " 're' <*> 2 ", "TypeError");
     eval_fail!(arith_24_, " 're' <+> 2 ", "TypeError");
 
     eval_fail!(arith_25_, " 19 </> 0", "ZeroDivisionError");
-    eval_fail!(arith_26_, " 19.0 </> 0.0 ", "ZeroDivisionError");
-
-    eval_fail!(arith_27_, " 19 </> 0.0", "TypeError");
-    eval_fail!(arith_28_, " 19.0 </> 0 ", "TypeError");
-
-    eval_fail!(arith_29_, r#" - "hello" "#, "TypeError");
-    eval_fail!(arith_31_, r#" "hello"{1} "#, "TypeError");
-    eval_fail!(arith_32_, r#" "hello"{1,} "#, "TypeError");
-    eval_fail!(arith_33_, r#" "hello"{1,2} "#, "TypeError");
-    eval_fail!(arith_34_, r#" "hello"? "#, "TypeError");
-    eval_fail!(arith_35_, r#" "hello"+ "#, "TypeError");
-    eval_fail!(arith_36_, r#" "hello"* "#, "TypeError");
-
-    eval_fail!(arith_37_, r#" 5.8 % 2 "#, "TypeError");
-    eval_fail!(arith_38_, r#" 5 <*> 2.0 "#, "TypeError");
 
     //
     // Assignment
@@ -1061,7 +855,7 @@ mod tests {
     let x = 1;
     let y = {
         x = 2;
-        "thrown out"
+        9
     };
     x
     "#,
@@ -1087,22 +881,12 @@ mod tests {
         r#"
     let y = {
         let x = 1;
-        "thrown out"
+        5
     };
     x = 1;
     2
     "#,
         "NameError"
-    );
-
-    //
-    // tuples
-    //
-
-    eval_to!(
-        tuple_9_,
-        r#" show((1, 2)) "#,
-        Value::Str("(1, 2)".to_string())
     );
 
     //
@@ -1183,7 +967,7 @@ mod tests {
     );
 
     eval_fail!(fn_5_, "fn() { x }", "NameError");
-    eval_fail!(fn_6_, "15(\"hi\")", "TypeError");
+    eval_fail!(fn_6_, "15(4)", "TypeError");
 
     eval_fail!(
         fn_7_,
@@ -1213,5 +997,5 @@ mod tests {
         Value::Int(2)
     );
 
-    eval_fail!(cap_1_, r#" cap 3.5 as foo "#, "TypeError");
+    eval_fail!(cap_1_, r#" cap 3 as foo "#, "TypeError");
 }

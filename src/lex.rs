@@ -98,8 +98,8 @@ impl<'input> fmt::Display for Token<'input> {
             &Token::LazyQuestion => write!(f, "??"),
             &Token::Semi => write!(f, ";"),
 
-            &Token::Minus => write!(f, "-"),
-            &Token::Percent => write!(f, "%"),
+            &Token::Minus => write!(f, "<->"),
+            &Token::Percent => write!(f, "<%>"),
             &Token::Div => write!(f, "</>"),
             &Token::Add => write!(f, "<+>"),
             &Token::Times => write!(f, "<*>"),
@@ -127,7 +127,6 @@ pub enum LexicalErrorKind {
 
     IntParseError(String, ParseIntError),
     FloatParseError(String, Option<ParseFloatError>),
-    ReservedButNotUsedOperator { op: String, end: usize },
     ReservedButNotUsedKeyword { word: String, end: usize },
     UnclosedBlockComment { nest_level: usize },
     UnexpectedChar(char),
@@ -167,11 +166,6 @@ impl<'input> fmt::Display for LexicalErrorKind {
                     &None => "".to_string(),
                 }
             ),
-
-            &LexicalErrorKind::ReservedButNotUsedOperator {
-                ref op,
-                end: _,
-            } => write!(f, "Reserved operator: '{}'.", op),
 
             &LexicalErrorKind::ReservedButNotUsedKeyword {
                 ref word,
@@ -222,7 +216,7 @@ impl<'input> Lexer<'input> {
 
             word_re: Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*").unwrap(),
             operator_re: Regex::new(
-                r"^(:?\(|\)|\{|\}\?|\}|,|;|<\*>|\*\?|\*|\+\?|\+|\?\?|\?|\.\.|\.|==|\|\||\||&&|=>|<=|>=|<\+>|</>|<|>|!=|!|=|-|%|:|\[|\])").unwrap(),
+                r"^(:?\(|\)|<%>|\{|\}\?|\}|,|;|<\*>|\*\?|\*|\+\?|\+|\?\?|\?|\||\.\.|\.|<\+>|<->|</>|<|>|=|:)").unwrap(),
         }
     }
 
@@ -284,11 +278,8 @@ impl<'input> Lexer<'input> {
     fn is_start_operator_char(&self, c: char) -> bool {
         match c {
             '{' | '}' | '*' | '+' | '?' | '.' | '|' | ',' | ';' | '=' | '('
-            | ')' | '!' | '&' | '<' | '>' | '-' | '/' | '%' | ':' | '['
-            | ']' => true,
+            | ')' | '!' | '&' | '<' | '>' | '/' | ':' => true,
 
-            // reserved but not used
-            '^' => true,
             _ => false,
         }
     }
@@ -541,18 +532,11 @@ impl<'input> Lexer<'input> {
                     "?" => Ok((Token::Question, end)),
                     "??" => Ok((Token::LazyQuestion, end)),
 
-                    "-" => Ok((Token::Minus, end)),
-                    "%" => Ok((Token::Percent, end)),
+                    "<->" => Ok((Token::Minus, end)),
+                    "<%>" => Ok((Token::Percent, end)),
                     "</>" => Ok((Token::Div, end)),
                     "<*>" => Ok((Token::Times, end)),
                     "<+>" => Ok((Token::Add, end)),
-
-                    "=>" => Err(self.error(
-                        LexicalErrorKind::ReservedButNotUsedOperator {
-                            op: String::from(&self.input[start..end]),
-                            end: end,
-                        },
-                    )),
 
                     // unreachable
                     _ => Err(self.error(LexicalErrorKind::BadOperator)),
@@ -1006,8 +990,8 @@ mod tests {
     tok_round_trip!(trt_19_, "*?");
     tok_round_trip!(trt_20_, "|");
     tok_round_trip!(trt_21_, ";");
-    tok_round_trip!(trt_33_, "-");
-    tok_round_trip!(trt_35_, "%");
+    tok_round_trip!(trt_33_, "<->");
+    tok_round_trip!(trt_35_, "<%>");
     tok_round_trip!(trt_36_, "</>");
     tok_round_trip!(trt_37_, "<+>");
     tok_round_trip!(trt_38_, "<*>");

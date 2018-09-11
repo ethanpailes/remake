@@ -148,11 +148,11 @@ mod tests {
 
     free_vars_are!(fv_1_, "x", "x");
 
-    free_vars_are!(fv_2_, "x - y", "x", "y");
+    free_vars_are!(fv_2_, "x <-> y", "x", "y");
 
     free_vars_are!(fv_3_, r#"
     fn(x) {
-        x - y
+        x <-> y
     }
     "#, "y");
 
