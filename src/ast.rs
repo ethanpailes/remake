@@ -100,6 +100,11 @@ impl ExprKind {
                     .append(Doc::space()).append(right.to_doc())
                     .append(Doc::text(")")).group()
             },
+            ExprKind::UnaryOp(ref op, ref exp) => {
+                Doc::text("(").append(op.to_doc())
+                    .append(Doc::space()).append(exp.to_doc())
+                    .append(Doc::text(")")).group()
+            },
             _ => pretty::Doc::as_string("UNIMPLEMENTED")
         }
     }
@@ -150,6 +155,41 @@ pub enum UOp {
     RepeatOneOrMore(bool),
     RepeatZeroOrOne(bool),
     RepeatRange(bool, regex_syntax::ast::RepetitionRange),
+}
+
+impl UOp {
+    fn to_doc(&self) -> pretty::Doc<pretty::BoxDoc<()>> {
+        match *self {
+            UOp::Neg => Doc::text("!"),
+            UOp::RepeatZeroOrMore(b) =>
+                Doc::text("repeat*")
+                .append(Doc::text(if b { "" } else { "?" }))
+                .group(),
+            UOp::RepeatOneOrMore(b) =>
+                Doc::text("repeat+")
+                .append(Doc::text(if b { "" } else { "?" }))
+                .group(),
+            UOp::RepeatZeroOrOne(b) =>
+                Doc::text("repeat?")
+                .append(Doc::text(if b { "" } else { "?" }))
+                .group(),
+            UOp::RepeatRange(b, ref range) =>
+                Doc::text("(")
+                .append(Doc::text("repeat"))
+                .append(Doc::text(if !b { "" } else { "?" }))
+                .append(Doc::space())
+                .append(match *range {
+                    regex_syntax::ast::RepetitionRange::Exactly(n) => Doc::as_string(n),
+                    regex_syntax::ast::RepetitionRange::AtLeast(n) =>
+                        Doc::text("atleast").append(Doc::space())
+                        .append(Doc::as_string(n)).group(),
+                    _ => Doc::text("UNIMPLEMENTED"),
+                })
+                .append(Doc::text(")"))
+                .group(),
+            _ => Doc::text("UNIMPLEMENTED"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
