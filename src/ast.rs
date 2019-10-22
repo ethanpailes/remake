@@ -13,6 +13,10 @@ use regex_syntax;
 use error::{ErrorKind, InternalError};
 use exec;
 
+use fmt;
+extern crate pretty;
+use self::pretty::Doc;
+
 #[derive(Debug, Clone)]
 pub struct Expr {
     pub kind: ExprKind,
@@ -41,6 +45,22 @@ impl Expr {
             )),
         }
     }
+
+    fn to_doc(&self) -> pretty::Doc<pretty::BoxDoc<()>> {
+        self.kind.to_doc()
+    }
+
+    pub fn to_pretty(&self, width: usize) -> String {
+        let mut w = Vec::new();
+        self.to_doc().render(width, &mut w).unwrap();
+        String::from_utf8(w).unwrap()
+    }
+}
+
+impl fmt::Display for Expr {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      write!(f, "{}", self.to_pretty(80))
+  }
 }
 
 #[derive(Debug, Clone)]
@@ -69,6 +89,28 @@ pub enum ExprKind {
     ExprPoison,
 }
 
+impl ExprKind {
+    pub fn to_doc(&self) -> pretty::Doc<pretty::BoxDoc<()>> {
+        match *self {
+            ExprKind::IntLiteral(x) => pretty::Doc::as_string(x),
+            ExprKind::Var(ref name) => pretty::Doc::as_string(name),
+            ExprKind::BinOp(ref left, ref op, ref right) => {
+                Doc::text("(").append(op.to_doc())
+                    .append(Doc::space()).append(left.to_doc())
+                    .append(Doc::space()).append(right.to_doc())
+                    .append(Doc::text(")")).group()
+            },
+            _ => pretty::Doc::as_string("UNIMPLEMENTED")
+        }
+    }
+
+    pub fn to_pretty(&self, width: usize) -> String {
+        let mut w = Vec::new();
+        self.to_doc().render(width, &mut w).unwrap();
+        String::from_utf8(w).unwrap()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Lambda {
     pub args: Vec<String>,
@@ -85,6 +127,20 @@ pub enum BOp {
     Div,
     Times,
     Mod,
+}
+
+impl BOp {
+    fn to_doc(&self) -> pretty::Doc<pretty::BoxDoc<()>> {
+        Doc::text(match *self {
+            BOp::Concat => "concat",
+            BOp::Alt => "alt",
+            BOp::Plus => "+",
+            BOp::Minus => "-",
+            BOp::Div => "/",
+            BOp::Times => "*",
+            BOp::Mod => "%",
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +165,16 @@ impl Statement {
             span: span,
         }
     }
+
+    fn to_doc(&self) -> pretty::Doc<pretty::BoxDoc<()>> {
+        self.kind.to_doc()
+    }
+
+    pub fn to_pretty(&self, width: usize) -> String {
+        let mut w = Vec::new();
+        self.to_doc().render(width, &mut w).unwrap();
+        String::from_utf8(w).unwrap()
+    }
 }
 
 // TODO(ethan): represent blocks as single expressions or statements
@@ -122,6 +188,33 @@ pub enum StatementKind {
     Expr(Box<Expr>),
     #[allow(dead_code)]
     Block(Vec<Statement>),
+}
+
+impl fmt::Display for Statement {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      write!(f, "{}", self.to_pretty(80))
+  }
+}
+
+impl StatementKind {
+    pub fn to_doc(&self) -> Doc<pretty::BoxDoc<()>> {
+        match *self {
+            StatementKind::LetBinding(ref name, ref exp) =>
+                Doc::text("(let")
+                    .append(Doc::space())
+                    .append(Doc::text(name))
+                    .append(Doc::space())
+                    .append(exp.to_doc())
+                    .append(Doc::text(")")).group(),
+            _ => pretty::Doc::as_string("UNIMPLEMENTED")
+        }
+    }
+
+    pub fn to_pretty(&self, width: usize) -> String {
+        let mut w = Vec::new();
+        self.to_doc().render(width, &mut w).unwrap();
+        String::from_utf8(w).unwrap()
+    }
 }
 
 #[derive(Debug, Clone)]
