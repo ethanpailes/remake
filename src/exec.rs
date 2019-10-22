@@ -413,7 +413,7 @@ fn eval_(
                     }
 
                     let mut new_env = closure_env.clone();
-                    let mut iter = args.iter().zip(lambda.args.iter());
+                    let iter = args.iter().zip(lambda.args.iter());
                     for (arg_expr, arg_name) in iter {
                         let arg_val = eval_(env, &arg_expr)?;
                         new_env.insert(arg_name.to_string(), arg_val);
