@@ -1,0 +1,44 @@
+version: 2
+
+jobs:
+  build:
+    docker:
+      - image: ethanpailes/remake-circleci:latest
+
+    environment:
+      TZ: "/usr/share/zoneinfo/America/New_York"
+
+    steps:
+      - checkout
+      - restore_cache:
+          key: project-cache
+      - run:
+          name: Nightly Build
+          command: |
+            rustup update && rustup install nightly
+            rustup run nightly rustc --version --verbose
+            rustup run nightly cargo --version --verbose
+            rustup run nightly cargo build
+      - run:
+          name: Stable Build
+          command: |
+            rustup update && rustup install stable
+            rustup run stable rustc --version --verbose
+            rustup run stable cargo --version --verbose
+            rustup run stable cargo build
+      - run:
+          name: MSRV Build
+          command: |
+            export MSRV="1.23.0"
+            rustup update && rustup install $MSRV
+            rustup run $MSRV rustc --version --verbose
+            rustup run $MSRV cargo --version --verbose
+            rustup run $MSRV cargo build
+      - run:
+          name: Test
+          command: rustup run stable cargo test
+      - save_cache:
+          key: project-cache
+          paths:
+            - "~/.cargo"
+            - "./target"
