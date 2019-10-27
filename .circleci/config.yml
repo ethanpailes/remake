@@ -1,13 +1,10 @@
 version: 2
-
 jobs:
   build:
     docker:
       - image: ethanpailes/remake-circleci:latest
-
     environment:
       TZ: "/usr/share/zoneinfo/America/New_York"
-
     steps:
       - checkout
       - restore_cache:
