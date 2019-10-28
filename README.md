@@ -13,7 +13,6 @@ When you want to use the terse regex syntax that you know and love,
 you still can, but when you want to break things down into bite
 sized pieces it is easy.
 
-[![Coverage Status](https://coveralls.io/repos/github/ethanpailes/remake/badge.svg?branch=master)](https://coveralls.io/github/ethanpailes/remake?branch=master)
 [![Build Status](https://circleci.com/gh/ethanpailes/remake.svg?style=svg)](https://circleci.com/gh/ethanpailes/remake)
 [![](http://meritbadge.herokuapp.com/remake)](https://crates.io/crates/remake)
 [![Docs](https://docs.rs/remake/badge.svg)](https://docs.rs/remake)
