@@ -263,14 +263,14 @@ impl<'input> Lexer<'input> {
 
     fn is_start_word_char(&self, c: char) -> bool {
         match c {
-            '_' | 'a'...'z' | 'A'...'Z' => true,
+            '_' | 'a'..='z' | 'A'..='Z' => true,
             _ => false,
         }
     }
 
     fn is_num_char(&self, c: char) -> bool {
         match c {
-            '0'...'9' => true,
+            '0'..='9' => true,
             _ => false,
         }
     }
