@@ -13,9 +13,9 @@ use std::str::{CharIndices, FromStr};
 
 use regex::Regex;
 
-use ast::Span;
-use error;
-use error::InternalError;
+use crate::ast::Span;
+use crate::error;
+use crate::error::InternalError;
 
 pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
 

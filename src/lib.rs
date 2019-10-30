@@ -363,7 +363,7 @@ mod util;
 // need to know about the RemakeArgument trait.
 //
 
-use error::InternalError;
+use crate::error::InternalError;
 use std::fmt;
 
 /// A remake expression, which can be compiled into a regex.
@@ -549,7 +549,7 @@ impl fmt::Display for Error {
 
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use Error::*;
+        use crate::Error::*;
 
         match self {
             &ParseError(ref err) => {

@@ -10,8 +10,8 @@ use std::rc::Rc;
 
 use regex_syntax;
 
-use error::{ErrorKind, InternalError};
-use exec;
+use crate::error::{ErrorKind, InternalError};
+use crate::exec;
 
 #[derive(Debug, Clone)]
 pub struct Expr {
