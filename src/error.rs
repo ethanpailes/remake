@@ -8,8 +8,8 @@
 
 use std::fmt;
 
-use ast::Span;
-use lex;
+use crate::ast::Span;
+use crate::lex;
 
 /// A structured remake error. Can be a parse error OR a runtime error.
 ///
@@ -66,7 +66,7 @@ pub struct ErrorSrcOverlay<'a, 'e> {
 
 impl<'a, 'e> fmt::Display for ErrorSrcOverlay<'a, 'e> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use error::ErrorKind::*;
+        use crate::error::ErrorKind::*;
 
         write!(
             f,

@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use regex_syntax::ast::{Position, Span};
-use ast;
+use crate::ast;
 use std::collections::HashSet;
 
 pub const POISON_SPAN: Span = Span {
@@ -127,8 +127,8 @@ pub fn construct_lambda(args: Vec<&str>, body: ast::Expr) -> ast::ExprKind {
 
 #[cfg(test)]
 mod tests {
-    use parse::BlockBodyParser;
-    use lex;
+    use crate::parse::BlockBodyParser;
+    use crate::lex;
     use super::free_vars;
 
     macro_rules! free_vars_are {

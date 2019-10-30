@@ -15,12 +15,12 @@ use std::rc::Rc;
 use regex_syntax;
 use regex_syntax::ast::{GroupKind, RepetitionKind};
 
-use ast;
-use ast::{Expr, ExprKind, Span, Statement, StatementKind};
-use error::{ErrorKind, InternalError};
-use re_operators;
-use re_operators::noncapturing_group;
-use util::POISON_SPAN;
+use crate::ast;
+use crate::ast::{Expr, ExprKind, Span, Statement, StatementKind};
+use crate::error::{ErrorKind, InternalError};
+use crate::re_operators;
+use crate::re_operators::noncapturing_group;
+use crate::util::POISON_SPAN;
 
 /// A remake runtime value.
 ///
@@ -721,8 +721,8 @@ const BOGUS_GROUP_INDEX: u32 = 0;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lex;
-    use parse::BlockBodyParser;
+    use crate::lex;
+    use crate::parse::BlockBodyParser;
 
     /// An equality function for remake runtime values.
     ///

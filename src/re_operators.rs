@@ -10,7 +10,7 @@
 /// Utilities for manipulating regex ASTs
 ///
 use regex_syntax::ast::{Alternation, Ast, Concat, Flags, Group, GroupKind};
-use util::POISON_SPAN;
+use crate::util::POISON_SPAN;
 
 //
 // The fact that regex_syntax::ast::Ast impls drop makes it really hard
