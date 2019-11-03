@@ -1123,4 +1123,126 @@ Error parsing '11111111111111111111111111111111111111111111111111111111' as a nu
         r"/^/ . ('/' . /[\w\-_]+/){1,5}? . /$/",
         "/a/b/c"
     );
+
+    #[test]
+    fn test_pretty_int() {
+        let ast = num(5);
+        let result = ast.to_pretty(10);
+        assert!(result == "5", "thing");
+    }
+
+    #[test]
+    fn test_pretty_var() {
+        let ast = ast::ExprKind::Var("x".to_string());
+        let result = ast.to_pretty(10);
+        assert!(result == "x", "thing");
+    }
+
+    fn binop(left: ast::Expr, op: ast::BOp, right: ast::Expr) -> ast::Expr {
+        exp(ast::ExprKind::BinOp(Box::new(left), op, Box::new(right)))
+    }
+
+    #[test]
+    fn test_pretty_binop() {
+        let ast = binop(num(5), ast::BOp::Plus, num(10));
+        let result = ast.to_pretty(10);
+        assert!(result == "(+ 5 10)", result);
+    }
+
+    fn unop(op: ast::UOp, expr: ast::Expr) -> ast::Expr {
+        exp(ast::ExprKind::UnaryOp(op, Box::new(expr)))
+    }
+
+    #[test]
+    fn test_pretty_unop_neg() {
+        let result = unop(ast::UOp::Neg, num(10)).to_pretty(100);
+        assert!(result == "(! 10)", result);
+    }
+
+    #[test]
+    fn test_pretty_unop_repeat_zero_or_more() {
+        let result = unop(ast::UOp::RepeatZeroOrMore(true), num(10)).to_pretty(100);
+        assert!(result == "(repeat* 10)", result);
+    }
+
+    #[test]
+    fn test_pretty_unop_repeat_zero_or_more_false() {
+        let result = unop(ast::UOp::RepeatZeroOrMore(false), num(10)).to_pretty(100);
+        assert!(result == "(repeat*? 10)", result);
+    }
+
+    #[test]
+    fn test_pretty_unop_repeat_one_or_more() {
+        let result = unop(ast::UOp::RepeatOneOrMore(true), num(10)).to_pretty(100);
+        assert!(result == "(repeat+ 10)", result);
+    }
+
+    #[test]
+    fn test_pretty_unop_repeat_one_or_more_false() {
+        let result = unop(ast::UOp::RepeatOneOrMore(false), num(10)).to_pretty(100);
+        assert!(result == "(repeat+? 10)", result);
+    }
+
+    #[test]
+    fn test_pretty_unop_repeat_zero_or_one() {
+        let result = unop(ast::UOp::RepeatZeroOrOne(true), num(10)).to_pretty(100);
+        assert!(result == "(repeat? 10)", result);
+    }
+
+    #[test]
+    fn test_pretty_unop_repeat_zero_or_one_false() {
+        let result = unop(ast::UOp::RepeatZeroOrOne(false), num(10)).to_pretty(100);
+        assert!(result == "(repeat?? 10)", result);
+    }
+
+    #[test]
+    fn test_pretty_unop_repeat_range_exactly() {
+        let result = unop(ast::UOp::RepeatRange(false, regex_syntax::ast::RepetitionRange::Exactly(5)), num(10)).to_pretty(100);
+        assert!(result == "((repeat 5) 10)", result);
+    }
+
+    #[test]
+    fn test_pretty_unop_repeat_range_exactly_true() {
+        let result = unop(ast::UOp::RepeatRange(true, regex_syntax::ast::RepetitionRange::Exactly(5)), num(10)).to_pretty(100);
+        assert!(result == "((repeat? 5) 10)", result);
+    }
+
+    #[test]
+    fn test_pretty_unop_repeat_range_at_least() {
+        let result = unop(ast::UOp::RepeatRange(false, regex_syntax::ast::RepetitionRange::AtLeast(5)), num(10)).to_pretty(100);
+        assert!(result == "((repeat atleast 5) 10)", result);
+    }
+
+    #[test]
+    fn test_pretty_unop_repeat_range_at_least_true() {
+        let result = unop(ast::UOp::RepeatRange(true, regex_syntax::ast::RepetitionRange::AtLeast(5)), num(10)).to_pretty(100);
+        assert!(result == "((repeat? atleast 5) 10)", result);
+    }
+
+    fn empty_span() -> ast::Span {
+        ast::Span { start: 0, end: 0 }
+    }
+
+    fn exp(kind: ast::ExprKind) -> ast::Expr {
+        ast::Expr { kind: kind, span: empty_span() }
+    }
+
+    fn num(x: i64) -> ast::Expr {
+        exp(ast::ExprKind::IntLiteral(x))
+    }
+
+    fn stmt(kind: ast::StatementKind) -> ast::Statement {
+        ast::Statement { kind: kind, span: empty_span() }
+    }
+
+    fn let_(name: &str, exp: ast::Expr) -> ast::Statement {
+        stmt(ast::StatementKind::LetBinding(name.to_string(), Box::new(exp)))
+    }
+
+    #[test]
+    fn test_pretty_let() {
+        let ast = let_("x", num(5));
+        let result = ast.to_pretty(100);
+        assert!(result == "(let x 5)", result);
+    }
 }
